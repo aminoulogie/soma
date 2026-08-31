@@ -1,0 +1,622 @@
+{
+  "2026-08-23": {
+    "timestamp": 1787486350411,
+    "dateStr": "2026-08-23T11:59:10.411Z",
+    "split": "Push",
+    "durationFormatted": "0m 17s",
+    "caloriesBurned": 34,
+    "totalVol": 5490,
+    "axialVol": 0,
+    "totalSets": 16,
+    "muscles": {
+      "biceps": {
+        "sets": 8,
+        "avgFail": 3.3
+      },
+      "chest": {
+        "sets": 2,
+        "avgFail": 1.5
+      },
+      "triceps": {
+        "sets": 8,
+        "avgFail": 2.4
+      },
+      "triceps_back": {
+        "sets": 8,
+        "avgFail": 2.4
+      }
+    },
+    "exercises": [
+      {
+        "name": "One-Arm Dumbbell Preacher Curl",
+        "muscle": "Biceps",
+        "subTarget": "Short Head (Inner / Unilateral)",
+        "targetKeys": [
+          "biceps"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Moderate 🟡",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": "15",
+            "reps": "12",
+            "failure": "2",
+            "done": true
+          },
+          {
+            "weight": "17.5",
+            "reps": "12",
+            "failure": "3",
+            "done": true
+          },
+          {
+            "weight": 20,
+            "reps": 9,
+            "failure": "5",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Bodyweight Chest Dips",
+        "muscle": "Chest",
+        "subTarget": "Lower Pec (Costal)",
+        "targetKeys": [
+          "chest",
+          "triceps",
+          "triceps_back"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Moderate 🟡",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": true,
+        "overloadTarget": {
+          "weight": 0,
+          "reps": 10,
+          "note": "BW Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": 0,
+            "reps": "12",
+            "failure": "1",
+            "done": true
+          },
+          {
+            "weight": 0,
+            "reps": "12",
+            "failure": "2",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Standing Barbell / EZ-Bar Curl",
+        "muscle": "Biceps",
+        "subTarget": "Overall Biceps",
+        "targetKeys": [
+          "biceps"
+        ],
+        "position": "Mid-Range",
+        "risk": "Low 🟢",
+        "tier": "A-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": "25",
+            "reps": "12",
+            "failure": "2",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Preacher Curl (Machine/EZ)",
+        "muscle": "Biceps",
+        "subTarget": "Short Head (Inner)",
+        "targetKeys": [
+          "biceps"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Moderate 🟡",
+        "tier": "A-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": "25",
+            "reps": "8",
+            "failure": "3",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Hammer Curl (Dumbbell/Cable)",
+        "muscle": "Biceps",
+        "subTarget": "Brachialis & Forearms",
+        "targetKeys": [
+          "biceps"
+        ],
+        "position": "Mid-Range",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": "15",
+            "reps": "12",
+            "failure": "3",
+            "done": true
+          },
+          {
+            "weight": "17.5",
+            "reps": "8",
+            "failure": "4",
+            "done": true
+          },
+          {
+            "weight": "17.5",
+            "reps": "8",
+            "failure": "4",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Standing Low Pulley Overhead Tricep Extension (Rope Extension)",
+        "muscle": "Triceps",
+        "subTarget": "Long Head (Lengthened)",
+        "targetKeys": [
+          "triceps",
+          "triceps_back"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": "45",
+            "reps": "12",
+            "failure": "2",
+            "done": true
+          },
+          {
+            "weight": "45",
+            "reps": "12",
+            "failure": "2",
+            "done": true
+          },
+          {
+            "weight": "45",
+            "reps": "8",
+            "failure": "3",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Straight Bar Tricep Extension",
+        "muscle": "Triceps",
+        "subTarget": "Lateral & Medial Head",
+        "targetKeys": [
+          "triceps",
+          "triceps_back"
+        ],
+        "position": "Shortened (Peak)",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start"
+        },
+        "sets": [
+          {
+            "weight": "65",
+            "reps": "12",
+            "failure": "2",
+            "done": true
+          },
+          {
+            "weight": "70",
+            "reps": "12",
+            "failure": "3",
+            "done": true
+          },
+          {
+            "weight": "75",
+            "reps": "12",
+            "failure": "4.5",
+            "done": true
+          }
+        ]
+      }
+    ]
+  },
+  "2026-08-22": {
+    "timestamp": 1787523313031,
+    "dateStr": "2026-08-23T22:15:13.031Z",
+    "split": "Push",
+    "durationFormatted": "0m 7s",
+    "caloriesBurned": 15,
+    "totalVol": 1280,
+    "totalSets": 2,
+    "muscles": {
+      "chest": {
+        "sets": 2,
+        "avgFail": 3
+      }
+    },
+    "exercises": [
+      {
+        "name": "Incline Dumbbell Press",
+        "muscle": "Chest",
+        "subTarget": "Upper Pec (Clavicular)",
+        "targetKeys": [
+          "chest"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "sets": [
+          {
+            "weight": "",
+            "reps": "",
+            "failure": "",
+            "done": true
+          },
+          {
+            "weight": "",
+            "reps": "",
+            "failure": "",
+            "done": true
+          },
+          {
+            "weight": "",
+            "reps": "",
+            "failure": "",
+            "done": false
+          }
+        ]
+      }
+    ]
+  },
+  "macros daily template": {
+    "timestamp": 1787520712426,
+    "dateStr": "2026-08-23T21:31:52.426Z",
+    "split": "Push",
+    "durationFormatted": "0m 11s",
+    "caloriesBurned": 15,
+    "totalVol": 0,
+    "axialVol": 0,
+    "totalSets": 0,
+    "muscles": {},
+    "exercises": []
+  },
+  "2026-08-23 1": {
+    "timestamp": 1787519514634,
+    "dateStr": "2026-08-23T21:11:54.634Z",
+    "split": "Push",
+    "durationFormatted": "0m 14s",
+    "caloriesBurned": 15,
+    "totalVol": 0,
+    "axialVol": 0,
+    "totalSets": 0,
+    "muscles": {},
+    "exercises": []
+  },
+  "daily template": {
+    "timestamp": 1787524157926,
+    "dateStr": "2026-08-23T22:29:17.926Z",
+    "split": "Logged Workout",
+    "durationFormatted": "0m 16s",
+    "caloriesBurned": 15,
+    "totalVol": 0,
+    "axialVol": 0,
+    "totalSets": 0,
+    "muscles": {},
+    "exercises": []
+  },
+  "2026-08-27": {
+    "timestamp": 1787850566914,
+    "dateStr": "2026-08-27T17:09:26.914Z",
+    "split": "Upper A (Chest/Back/Shoulder Focus)",
+    "durationFormatted": "66m 36s",
+    "caloriesBurned": 501,
+    "totalVol": 12385,
+    "axialVol": 2000,
+    "totalSets": 16,
+    "muscles": {
+      "upper_back": {
+        "sets": 9,
+        "avgFail": 2.8
+      },
+      "trapezius_back": {
+        "sets": 6,
+        "avgFail": 2.8
+      },
+      "lower_back": {
+        "sets": 3,
+        "avgFail": 2.7
+      },
+      "chest": {
+        "sets": 1,
+        "avgFail": 2
+      },
+      "triceps": {
+        "sets": 7,
+        "avgFail": 1.7
+      },
+      "triceps_back": {
+        "sets": 7,
+        "avgFail": 1.7
+      }
+    },
+    "exercises": [
+      {
+        "name": "Lat Pulldown (Wide/Neutral)",
+        "muscle": "Back",
+        "subTarget": "Lats (Vertical Pull)",
+        "targetKeys": [
+          "upper_back"
+        ],
+        "position": "Shortened (Peak)",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start (Empty Bar / Light)",
+          "diffTier": "New"
+        },
+        "sets": [
+          {
+            "weight": "70",
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          },
+          {
+            "weight": "80",
+            "reps": "12",
+            "failure": "3",
+            "done": true
+          },
+          {
+            "weight": "90",
+            "reps": "12",
+            "failure": 3,
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Barbell Bent-Over Row",
+        "muscle": "Back",
+        "subTarget": "Upper Back / Lats",
+        "targetKeys": [
+          "upper_back",
+          "trapezius_back",
+          "lower_back"
+        ],
+        "position": "Mid-Range",
+        "risk": "High (Axial) 🔴",
+        "tier": "A-Tier",
+        "isAxial": true,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start (Empty Bar / Light)",
+          "diffTier": "New"
+        },
+        "sets": [
+          {
+            "weight": "60",
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          },
+          {
+            "weight": "60",
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          },
+          {
+            "weight": "70",
+            "reps": "8",
+            "failure": "4",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Seated Cable Row (Wide)",
+        "muscle": "Back",
+        "subTarget": "Upper Back / Mid-Traps",
+        "targetKeys": [
+          "trapezius_back",
+          "upper_back"
+        ],
+        "position": "Shortened (Peak)",
+        "risk": "Low 🟢",
+        "tier": "A-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start (Empty Bar / Light)",
+          "diffTier": "New"
+        },
+        "sets": [
+          {
+            "weight": "70",
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          },
+          {
+            "weight": "80",
+            "reps": "12",
+            "failure": "3",
+            "done": true
+          },
+          {
+            "weight": "90",
+            "reps": "8",
+            "failure": "4",
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Bodyweight Chest Dips",
+        "muscle": "Chest",
+        "subTarget": "Lower Pec (Costal)",
+        "targetKeys": [
+          "chest",
+          "triceps",
+          "triceps_back"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Moderate 🟡",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": true,
+        "overloadTarget": {
+          "weight": 0,
+          "reps": 14,
+          "note": "+2 Reps Target (Level 1 Easy RPE • Hit 12r)",
+          "diffTier": "Lvl 1 (Surge)"
+        },
+        "sets": [
+          {
+            "weight": 0,
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Cable Triceps Pushdown (Straight/V)",
+        "muscle": "Triceps",
+        "subTarget": "Lateral & Medial Head",
+        "targetKeys": [
+          "triceps",
+          "triceps_back"
+        ],
+        "position": "Shortened (Peak)",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start (Empty Bar / Light)",
+          "diffTier": "New"
+        },
+        "sets": [
+          {
+            "weight": "80",
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          },
+          {
+            "weight": "80",
+            "reps": "12",
+            "failure": 2,
+            "done": true
+          },
+          {
+            "weight": "80",
+            "reps": "10",
+            "failure": 3,
+            "done": true
+          }
+        ]
+      },
+      {
+        "name": "Standing Low Pulley Overhead Tricep Extension",
+        "muscle": "Triceps",
+        "subTarget": "Long Head (Lengthened)",
+        "targetKeys": [
+          "triceps",
+          "triceps_back"
+        ],
+        "position": "Lengthened (Stretch)",
+        "risk": "Low 🟢",
+        "tier": "S-Tier",
+        "isAxial": false,
+        "isBW": false,
+        "overloadTarget": {
+          "weight": 20,
+          "reps": 10,
+          "note": "Baseline Start (Empty Bar / Light)",
+          "diffTier": "New"
+        },
+        "sets": [
+          {
+            "weight": "40",
+            "reps": "12",
+            "failure": "1",
+            "done": true
+          },
+          {
+            "weight": "50",
+            "reps": "12",
+            "failure": "1",
+            "done": true
+          },
+          {
+            "weight": "50",
+            "reps": "12",
+            "failure": "1",
+            "done": true
+          }
+        ]
+      }
+    ]
+  }
+}

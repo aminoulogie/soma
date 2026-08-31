@@ -1,0 +1,184 @@
+{
+  "days": {
+    "0": {
+      "name": "Monday",
+      "focus": "Push (Chest / Delts / Triceps)",
+      "exercises": [
+        {
+          "name": "Incline DB Press",
+          "sets": "3",
+          "reps": "8-10",
+          "weight": "32",
+          "done": false
+        },
+        {
+          "name": "Flat Barbell Bench",
+          "sets": "3",
+          "reps": "6-8",
+          "weight": "85",
+          "done": false
+        },
+        {
+          "name": "Cable Lateral Raise",
+          "sets": "4",
+          "reps": "12-15",
+          "weight": "12",
+          "done": false
+        },
+        {
+          "name": "Tricep Pushdown",
+          "sets": "3",
+          "reps": "10-12",
+          "weight": "35",
+          "done": false
+        }
+      ]
+    },
+    "1": {
+      "name": "Tuesday",
+      "focus": "Pull (Back / Rear Delts / Biceps)",
+      "exercises": [
+        {
+          "name": "Lat Pulldown",
+          "sets": "3",
+          "reps": "8-10",
+          "weight": "70",
+          "done": false
+        },
+        {
+          "name": "Chest-Supported Row",
+          "sets": "3",
+          "reps": "10-12",
+          "weight": "60",
+          "done": false
+        },
+        {
+          "name": "Face Pulls",
+          "sets": "3",
+          "reps": "15",
+          "weight": "25",
+          "done": false
+        },
+        {
+          "name": "Incline DB Curl",
+          "sets": "3",
+          "reps": "10-12",
+          "weight": "14",
+          "done": false
+        }
+      ]
+    },
+    "2": {
+      "name": "Wednesday",
+      "focus": "Legs (Quad / Knee Dominant)",
+      "exercises": [
+        {
+          "name": "Hack Squat",
+          "sets": "3",
+          "reps": "8-10",
+          "weight": "120",
+          "done": false
+        },
+        {
+          "name": "Romanian Deadlift",
+          "sets": "3",
+          "reps": "8-10",
+          "weight": "100",
+          "done": false
+        },
+        {
+          "name": "Leg Extensions",
+          "sets": "3",
+          "reps": "12-15",
+          "weight": "65",
+          "done": false
+        },
+        {
+          "name": "Seated Calf Raise",
+          "sets": "4",
+          "reps": "12-15",
+          "weight": "45",
+          "done": false
+        }
+      ]
+    },
+    "3": {
+      "name": "Thursday",
+      "focus": "Rest & Active Recovery",
+      "exercises": []
+    },
+    "4": {
+      "name": "Friday",
+      "focus": "Upper Body (Hypertrophy Bias)",
+      "exercises": [
+        {
+          "name": "Smith Incline Press",
+          "sets": "3",
+          "reps": "8-10",
+          "weight": "75",
+          "done": false
+        },
+        {
+          "name": "Single-Arm Cable Row",
+          "sets": "3",
+          "reps": "10-12",
+          "weight": "40",
+          "done": false
+        },
+        {
+          "name": "Dumbbell Lateral Raise",
+          "sets": "4",
+          "reps": "12-15",
+          "weight": "14",
+          "done": false
+        },
+        {
+          "name": "Overhead Tricep Ext",
+          "sets": "3",
+          "reps": "10-12",
+          "weight": "28",
+          "done": false
+        }
+      ]
+    },
+    "5": {
+      "name": "Saturday",
+      "focus": "Lower Body (Posterior / Hamstrings)",
+      "exercises": [
+        {
+          "name": "Seated Leg Curl",
+          "sets": "4",
+          "reps": "10-12",
+          "weight": "55",
+          "done": false
+        },
+        {
+          "name": "Leg Press",
+          "sets": "3",
+          "reps": "10-12",
+          "weight": "180",
+          "done": false
+        },
+        {
+          "name": "Hip Thrust",
+          "sets": "3",
+          "reps": "8-10",
+          "weight": "110",
+          "done": false
+        },
+        {
+          "name": "Standing Calf Raise",
+          "sets": "4",
+          "reps": "15",
+          "weight": "70",
+          "done": false
+        }
+      ]
+    },
+    "6": {
+      "name": "Sunday",
+      "focus": "Full Rest & Mobility",
+      "exercises": []
+    }
+  }
+}
