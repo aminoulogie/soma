@@ -1,0 +1,3 @@
+# These files are deployed byte-for-byte into the vault. Never let git rewrite
+# line endings on them, or the deployed artifact stops matching the repo.
+* -text
