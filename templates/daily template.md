@@ -1,13 +1,14 @@
 ---
-workout_split: Logged Workout
+workout_split: ""
 workout_volume: 0
 workout_sets: 0
-workout_calories: 15
-calories_consumed: 4218
-protein_grams: 175
-carbs_grams: 256
-fat_grams: 196
-water_ml: 1000
+workout_calories: 0
+calories_consumed: 0
+protein_grams: 0
+carbs_grams: 0
+fat_grams: 0
+water_ml: 0
+body_weight_kg: 70
 ---
 # macro-tracker
 
@@ -18,7 +19,13 @@ water_ml: 1000
 
 ```soma-coach
 ```
+
 # creatine-saturation-tracker
+
+```creatine-tracker
+```
+
+# habits
 
 ```habittracker
 ```
