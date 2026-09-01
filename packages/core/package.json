@@ -1,0 +1,7 @@
+{
+  "name": "@soma/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Data model, migrations and training/nutrition maths. No UI, no platform APIs.",
+  "main": "src/index.js"
+}

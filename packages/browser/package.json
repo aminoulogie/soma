@@ -1,0 +1,7 @@
+{
+  "name": "@soma/browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-only helpers shared by the plugin and the PWA: theming, audio, photo capture. No Obsidian.",
+  "main": "src/index.js"
+}

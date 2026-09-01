@@ -1,1436 +1,64 @@
-// ============================================================================
-// SOMA SMART COACH & RECOVERY HUD PRO (v3.4.0 UNIFIED ENGINE)
-// ============================================================================
+// ==========================================================================
+// The plugin class: widget mounting, all view rendering, and event wiring.
+//
+// This is still the largest module. Its methods close over a great deal of
+// shared local state (mountApp alone builds every renderer as a closure over
+// the same session, settings and DOM handles), so breaking it up further
+// means rewriting that structure rather than relocating code. That is a
+// separate job from this split, which only moves things.
+// ==========================================================================
 
 const { Plugin, Modal, Notice, requestUrl, PluginSettingTab, Setting, setIcon, MarkdownRenderChild } = require("obsidian");
 
-const HISTORY_FILE_PATH = "apps/scripts/soma-history.json";
-const CUSTOM_EX_FILE_PATH = "apps/scripts/custom-exercises.json";
-const SETTINGS_FILE_PATH = "apps/scripts/soma-settings.json";
-const NUTRITION_FILE_PATH = "apps/scripts/soma-nutrition.json";
-const CUSTOM_FOODS_FILE = "apps/scripts/custom-foods.json";
-const DATA_FILE_PATH = "apps/scripts/soma-data.json";
-const REGISTRY_FILE_PATH = "apps/scripts/muscleRegistry.json";
-const WEEKLY_FILE_PATH = "apps/scripts/weekly-gym-data.json";
-const HABITS_FILE_PATH = "apps/scripts/soma-habits.json";
-
-function getLocalDateKey(dateObj = new Date()) {
-  const y = dateObj.getFullYear();
-  const m = String(dateObj.getMonth() + 1).padStart(2, "0");
-  const d = String(dateObj.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function parseLocalDateKey(dateKeyStr) {
-  if (!dateKeyStr || typeof dateKeyStr !== "string") return new Date();
-  const parts = dateKeyStr.split("-").map(Number);
-  if (parts.length < 3 || isNaN(parts[0])) return new Date();
-  return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-}
-
-// ============================================================================
-// SECTION 1: MASTER BIOMECHANICS & NUTRITION DATABASES
-// ============================================================================
-
-const DEFAULT_GOALS = {
-  cals: 2400,
-  protein: 160,
-  carbs: 260,
-  fat: 70,
-  water: 3500,
-  fiber: 35,
-  calcium: 1000,
-  iron: 18,
-  magnesium: 400,
-  potassium: 3500,
-  sodium: 2300,
-  zinc: 11
-};
-
-const BASE_FOOD_LIBRARY = [
-  { name: "Whole Eggs", serving: 100, unit: "g", cals: 143, p: 13.0, c: 0.7, f: 9.9, fiber: 0, sodium: 142, potassium: 138, calcium: 56, iron: 1.8, magnesium: 12, zinc: 1.3, isBase: true, usageCount: 15 },
-  { name: "Chicken Breast (Cooked)", serving: 100, unit: "g", cals: 165, p: 31.0, c: 0.0, f: 3.6, fiber: 0, sodium: 74, potassium: 256, calcium: 15, iron: 1.0, magnesium: 29, zinc: 1.0, isBase: true, usageCount: 20 },
-  { name: "White Rice (Cooked)", serving: 150, unit: "g", cals: 195, p: 4.1, c: 43.0, f: 0.4, fiber: 0.6, sodium: 1, potassium: 55, calcium: 16, iron: 1.8, magnesium: 19, zinc: 0.8, isBase: true, usageCount: 18 },
-  { name: "Egg Whites", serving: 100, unit: "g", cals: 52, p: 11.0, c: 0.7, f: 0.2, fiber: 0, sodium: 166, potassium: 163, calcium: 7, iron: 0.1, magnesium: 11, zinc: 0.0, isBase: true, usageCount: 12 },
-  { name: "Oatmeal (Dry)", serving: 50, unit: "g", cals: 190, p: 6.5, c: 34.0, f: 3.5, fiber: 5.0, sodium: 2, potassium: 180, calcium: 26, iron: 2.1, magnesium: 69, zinc: 1.5, isBase: true, usageCount: 14 },
-  { name: "Whey Protein Isolate", serving: 30, unit: "g", cals: 120, p: 25.0, c: 1.5, f: 1.0, fiber: 0, sodium: 140, potassium: 160, calcium: 130, iron: 0.4, magnesium: 20, zinc: 0.5, isBase: true, usageCount: 16 },
-  { name: "Greek / Plain Yogurt", serving: 150, unit: "g", cals: 90, p: 15.0, c: 5.0, f: 0.5, fiber: 0, sodium: 55, potassium: 210, calcium: 165, iron: 0.1, magnesium: 17, zinc: 0.9, isBase: true, usageCount: 10 },
-  { name: "Canned Tuna (Drained)", serving: 120, unit: "g", cals: 130, p: 29.0, c: 0.0, f: 1.0, fiber: 0, sodium: 380, potassium: 280, calcium: 12, iron: 1.6, magnesium: 34, zinc: 0.9, isBase: true, usageCount: 11 },
-  { name: "Pasta (Dry)", serving: 80, unit: "g", cals: 280, p: 10.0, c: 58.0, f: 1.2, fiber: 2.5, sodium: 5, potassium: 180, calcium: 18, iron: 1.4, magnesium: 42, zinc: 1.1, isBase: true, usageCount: 8 },
-  { name: "Olive Oil", serving: 14, unit: "g", cals: 120, p: 0.0, c: 0.0, f: 14.0, fiber: 0, sodium: 0, potassium: 0, calcium: 0, iron: 0.1, magnesium: 0, zinc: 0.0, isBase: true, usageCount: 9 },
-  { name: "Peanut Butter", serving: 32, unit: "g", cals: 190, p: 8.0, c: 7.0, f: 16.0, fiber: 2.0, sodium: 140, potassium: 210, calcium: 14, iron: 0.6, magnesium: 54, zinc: 0.9, isBase: true, usageCount: 6 },
-  { name: "Banana", serving: 118, unit: "g", cals: 105, p: 1.3, c: 27.0, f: 0.3, fiber: 3.1, sodium: 1, potassium: 422, calcium: 6, iron: 0.3, magnesium: 32, zinc: 0.2, isBase: true, usageCount: 10 }
-];
-
-const BASE_EXERCISE_DB = [
-  // CHEST
-  { name: "Incline Dumbbell Press", muscle: "Chest", subTarget: "Upper Pec (Clavicular)", targetKeys: ["chest"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Incline Barbell Bench", muscle: "Chest", subTarget: "Upper Pec (Clavicular)", targetKeys: ["chest"], position: "Mid-Range", risk: "Moderate 🟡", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Smith Machine Incline Press", muscle: "Chest", subTarget: "Upper Pec (Clavicular)", targetKeys: ["chest"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Low-to-High Cable Fly", muscle: "Chest", subTarget: "Upper Pec (Clavicular)", targetKeys: ["chest"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "High-to-Low Cable Fly", muscle: "Chest", subTarget: "Lower Pec (Costal)", targetKeys: ["chest"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Flat Barbell Bench Press", muscle: "Chest", subTarget: "Mid/Lower Pec (Sternal)", targetKeys: ["chest"], position: "Mid-Range", risk: "Moderate 🟡", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Flat Dumbbell Press", muscle: "Chest", subTarget: "Mid/Lower Pec (Sternal)", targetKeys: ["chest"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Pec Deck Fly (Machine)", muscle: "Chest", subTarget: "Mid/Lower Pec (Sternal)", targetKeys: ["chest"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Bodyweight Chest Dips", muscle: "Chest", subTarget: "Lower Pec (Costal)", targetKeys: ["chest", "triceps", "triceps_back"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: true },
-  { name: "Weighted Chest Dips", muscle: "Chest", subTarget: "Lower Pec (Costal)", targetKeys: ["chest", "triceps", "triceps_back"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Machine Chest Press", muscle: "Chest", subTarget: "Mid/Lower Pec (Sternal)", targetKeys: ["chest"], position: "Mid-Range", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-
-  // BACK
-  { name: "Bodyweight Pull-ups", muscle: "Back", subTarget: "Lats (Vertical Pull)", targetKeys: ["upper_back", "biceps"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: true },
-  { name: "Weighted Pull-ups / Chin-ups", muscle: "Back", subTarget: "Lats (Vertical Pull)", targetKeys: ["upper_back", "biceps"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Lat Pulldown (Wide/Neutral)", muscle: "Back", subTarget: "Lats (Vertical Pull)", targetKeys: ["upper_back"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Single-Arm Lat Cable Row", muscle: "Back", subTarget: "Lats (Iliac / Lower)", targetKeys: ["upper_back"], position: "Lengthened & Shortened", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Single-Arm Dumbbell Row", muscle: "Back", subTarget: "Lats & Upper Back", targetKeys: ["upper_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Chest-Supported T-Bar Row", muscle: "Back", subTarget: "Upper Back / Rhomboids", targetKeys: ["trapezius_back", "upper_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Meadows Row", muscle: "Back", subTarget: "Upper Lats & Teres Major", targetKeys: ["upper_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Barbell Bent-Over Row", muscle: "Back", subTarget: "Upper Back / Lats", targetKeys: ["upper_back", "trapezius_back", "lower_back"], position: "Mid-Range", risk: "High (Axial) 🔴", tier: "A-Tier", isAxial: true, isBW: false },
-  { name: "Seated Cable Row (Wide)", muscle: "Back", subTarget: "Upper Back / Mid-Traps", targetKeys: ["trapezius_back", "upper_back"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Barbell Deadlift", muscle: "Back", subTarget: "Erectors / Posterior Chain", targetKeys: ["lower_back", "hamstring", "gluteal"], position: "Mid-Range", risk: "High (Axial) 🔴", tier: "A-Tier", isAxial: true, isBW: false },
-
-  // SHOULDERS
-  { name: "Standing Overhead Press (OHP)", muscle: "Shoulders", subTarget: "Front Delt (Anterior)", targetKeys: ["deltoids", "triceps", "triceps_back"], position: "Mid-Range", risk: "High (Axial) 🔴", tier: "A-Tier", isAxial: true, isBW: false },
-  { name: "Seated Dumbbell Shoulder Press", muscle: "Shoulders", subTarget: "Front Delt (Anterior)", targetKeys: ["deltoids", "triceps", "triceps_back"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Machine Shoulder Press", muscle: "Shoulders", subTarget: "Front Delt (Anterior)", targetKeys: ["deltoids", "triceps"], position: "Mid-Range", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Cable Lateral Raise", muscle: "Shoulders", subTarget: "Side Delt (Lateral)", targetKeys: ["deltoids", "deltoids_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Cable Y-Raise", muscle: "Shoulders", subTarget: "Side Delt (Lateral)", targetKeys: ["deltoids", "deltoids_back"], position: "Lengthened & Shortened", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Dumbbell Lateral Raise", muscle: "Shoulders", subTarget: "Side Delt (Lateral)", targetKeys: ["deltoids", "deltoids_back"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Face Pulls", muscle: "Shoulders", subTarget: "Rear Delt (Posterior)", targetKeys: ["deltoids_back", "trapezius_back"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Reverse Pec Deck", muscle: "Shoulders", subTarget: "Rear Delt (Posterior)", targetKeys: ["deltoids_back"], position: "Lengthened & Shortened", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-
-  // ARMS
-  { name: "Standing Barbell / EZ-Bar Curl", muscle: "Biceps", subTarget: "Overall Biceps", targetKeys: ["biceps"], position: "Mid-Range", risk: "Low 🟢", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Dumbbell Preacher Curl", muscle: "Biceps", subTarget: "Short Head (Inner)", targetKeys: ["biceps"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "One-Arm Dumbbell Preacher Curl", muscle: "Biceps", subTarget: "Short Head (Inner / Unilateral)", targetKeys: ["biceps"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Incline Dumbbell Curl", muscle: "Biceps", subTarget: "Long Head (Peak)", targetKeys: ["biceps"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Bayesian Cable Curl", muscle: "Biceps", subTarget: "Long Head (Peak)", targetKeys: ["biceps"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Hammer Curl (Dumbbell/Cable)", muscle: "Biceps", subTarget: "Brachialis & Forearms", targetKeys: ["biceps"], position: "Mid-Range", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "EZ Bar Skullcrusher", muscle: "Triceps", subTarget: "Long & Medial Head", targetKeys: ["triceps", "triceps_back"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Standing Low Pulley Overhead Tricep Extension", muscle: "Triceps", subTarget: "Long Head (Lengthened)", targetKeys: ["triceps", "triceps_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Cable Triceps Pushdown (Straight/V)", muscle: "Triceps", subTarget: "Lateral & Medial Head", targetKeys: ["triceps", "triceps_back"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-
-  // LEGS & CALVES
-  { name: "Hack Squat", muscle: "Legs", subTarget: "Quads (Knee Extensors)", targetKeys: ["quadriceps", "gluteal"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Barbell Back Squat", muscle: "Legs", subTarget: "Quads & Glutes", targetKeys: ["quadriceps", "gluteal", "lower_back"], position: "Lengthened (Stretch)", risk: "High (Axial) 🔴", tier: "A-Tier", isAxial: true, isBW: false },
-  { name: "Leg Press", muscle: "Legs", subTarget: "Quads & Adductors", targetKeys: ["quadriceps", "adductors"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Leg Extensions", muscle: "Legs", subTarget: "Rectus Femoris", targetKeys: ["quadriceps"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Bulgarian Split Squat", muscle: "Legs", subTarget: "Glutes & Quads", targetKeys: ["gluteal", "quadriceps", "adductors"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Romanian Deadlift (DB/Barbell)", muscle: "Legs", subTarget: "Hamstrings (Lengthened)", targetKeys: ["hamstring", "gluteal", "lower_back"], position: "Lengthened (Stretch)", risk: "Moderate 🟡", tier: "S-Tier", isAxial: true, isBW: false },
-  { name: "Seated Leg Curl", muscle: "Legs", subTarget: "Hamstrings (Knee Flexion)", targetKeys: ["hamstring"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Lying Leg Curl", muscle: "Legs", subTarget: "Hamstrings (Shortened)", targetKeys: ["hamstring"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "A-Tier", isAxial: false, isBW: false },
-  { name: "Barbell / Machine Hip Thrust", muscle: "Legs", subTarget: "Glutes (Maximus)", targetKeys: ["gluteal"], position: "Shortened (Peak)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Standing Machine Calf Raise", muscle: "Legs", subTarget: "Calves (Gastrocnemius)", targetKeys: ["calves", "calves_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false },
-  { name: "Seated Calf Raise Machine", muscle: "Legs", subTarget: "Calves (Soleus)", targetKeys: ["calves", "calves_back"], position: "Lengthened (Stretch)", risk: "Low 🟢", tier: "S-Tier", isAxial: false, isBW: false }
-];
-
-const ROUTINE_PRESETS = {
-  "Legs A (Quad / Squat Dominant)": [
-    { name: "Hack Squat" },
-    { name: "Romanian Deadlift (DB/Barbell)" },
-    { name: "Leg Extensions" },
-    { name: "Seated Leg Curl" },
-    { name: "Standing Machine Calf Raise" }
-  ],
-  "Push B (Hypertrophy & Long Muscle Length)": [
-    { name: "Smith Machine Incline Press" },
-    { name: "Pec Deck Fly (Machine)" },
-    { name: "Machine Shoulder Press" },
-    { name: "Cable Y-Raise" },
-    { name: "Cable Triceps Pushdown (Straight/V)" },
-    { name: "Weighted Chest Dips" }
-  ],
-  "Pull B (Back Width & Arm Bias)": [
-    { name: "Single-Arm Lat Cable Row" },
-    { name: "Seated Cable Row (Wide)" },
-    { name: "Reverse Pec Deck" },
-    { name: "Bayesian Cable Curl" },
-    { name: "Hammer Curl (Dumbbell/Cable)" }
-  ],
-  "Legs B (Posterior Chain & Glute Bias)": [
-    { name: "Romanian Deadlift (DB/Barbell)" },
-    { name: "Leg Press" },
-    { name: "Lying Leg Curl" },
-    { name: "Barbell / Machine Hip Thrust" },
-    { name: "Seated Calf Raise Machine" }
-  ],
-  "Upper A (Chest/Back/Shoulder Focus)": [
-    { name: "Incline Dumbbell Press" },
-    { name: "Chest-Supported T-Bar Row" },
-    { name: "Cable Lateral Raise" },
-    { name: "Lat Pulldown (Wide/Neutral)" },
-    { name: "Standing Low Pulley Overhead Tricep Extension" },
-    { name: "One-Arm Dumbbell Preacher Curl" }
-  ],
-  "Rest & Active Recovery": []
-};
-
-const ROTATION_SEQUENCE = [
-  "Legs A (Quad / Squat Dominant)",
-  "Push B (Hypertrophy & Long Muscle Length)",
-  "Pull B (Back Width & Arm Bias)",
-  "Legs B (Posterior Chain & Glute Bias)",
-  "Upper A (Chest/Back/Shoulder Focus)",
-  "Rest & Active Recovery"
-];
-
-// ============================================================
-// SECTION 2: PROGRESSIVE OVERLOAD & PERIODIZATION ENGINES
-// ============================================================
-
-class SomaIntelligenceEngine {
-  static calculate1RM(weight, reps) {
-    const w = parseFloat(weight) || 0;
-    const r = parseInt(reps) || 0;
-    if (w <= 0 || r <= 0) return 0;
-    if (r === 1) return w;
-    const epley = w * (1 + r / 30);
-    const brzycki = r < 37 ? w * (36 / (37 - r)) : epley;
-    return Math.round(((epley + brzycki) / 2) * 10) / 10;
-  }
-
-  static calculateWorkVolume(weight, reps, isBW = false, userBodyweight = 75) {
-    const w = parseFloat(weight) || 0;
-    const r = parseInt(reps) || 0;
-    if (isBW && w === 0) return Math.round((userBodyweight * 0.65) * r);
-    return Math.round(w * r);
-  }
-
-  static calculateCaloriesBurned(minutes, totalVolumeKg, totalSets, avgIntensity = 3) {
-    const baseBurnPerMin = 6.0;
-    const intensityMultiplier = 0.8 + (avgIntensity * 0.12);
-    const volumeBonus = totalVolumeKg * 0.0055;
-    return Math.max(20, Math.round((minutes * baseBurnPerMin * intensityMultiplier) + volumeBonus));
-  }
-
-  static calculatePlateStack(targetWeight, barWeight = 20, unit = "kg") {
-    let perSide = (parseFloat(targetWeight) - barWeight) / 2;
-    if (perSide <= 0) return [];
-    const plateTypes = unit === "kg"
-      ? [
-          { weight: 25, color: "#ef4444" },
-          { weight: 20, color: "#3b82f6" },
-          { weight: 15, color: "#eab308" },
-          { weight: 10, color: "#10b981" },
-          { weight: 5,  color: "#ffffff" },
-          { weight: 2.5,color: "#64748b" },
-          { weight: 1.25,color: "#94a3b8" }
-        ]
-      : [
-          { weight: 45, color: "#3b82f6" },
-          { weight: 35, color: "#eab308" },
-          { weight: 25, color: "#10b981" },
-          { weight: 10, color: "#ffffff" },
-          { weight: 5,  color: "#64748b" }
-        ];
-
-    const EPSILON = 0.001;
-    const plates = [];
-    for (const p of plateTypes) {
-      while (perSide - p.weight >= -EPSILON) {
-        plates.push(p);
-        perSide -= p.weight;
-        if (perSide < EPSILON) perSide = 0;
-      }
-    }
-    return plates;
-  }
-
-  static calculateWarmupRamp(targetWeight, barWeight = 20, unit = "kg") {
-    const target = parseFloat(targetWeight) || 0;
-    const percentages = [0.4, 0.6, 0.8];
-    return percentages.map(pct => {
-      let raw = target * pct;
-      // Round to nearest achievable increment (2.5kg / 5lb) so the ramp is loadable
-      const increment = unit === "kg" ? 2.5 : 5;
-      let rounded = Math.round(raw / increment) * increment;
-      if (rounded < barWeight) rounded = barWeight;
-      return {
-        pct: Math.round(pct * 100),
-        weight: rounded,
-        plates: this.calculatePlateStack(rounded, barWeight, unit)
-      };
-    });
-  }
-
-  static computeOverloadRecommendation(lastSet, isBW = false) {
-    if (!lastSet) {
-      return isBW
-        ? { weight: 0, reps: 10, note: "BW Baseline Start", diffTier: "New" }
-        : { weight: 20, reps: 10, note: "Baseline Start (Empty Bar / Light)", diffTier: "New" };
-    }
-
-    const lastW = parseFloat(lastSet.weight) || 0;
-    const lastR = parseInt(lastSet.reps) || (isBW ? 10 : 8);
-    const lastFail = parseInt(lastSet.failure) || 3;
-
-    if (lastFail === 1) {
-      if (isBW && lastW === 0) {
-        return { weight: 0, reps: lastR + 2, note: `+2 Reps Target (Level 1 Easy RPE • Hit ${lastR}r)`, diffTier: "Lvl 1 (Surge)" };
-      }
-      return { weight: lastW + 5.0, reps: Math.max(8, lastR - 2), note: `+5.0kg Aggressive Load Surge (Level 1 RPE)`, diffTier: "Lvl 1 (Surge)" };
-    } else if (lastFail === 2) {
-      if (isBW && lastW === 0) {
-        return { weight: 0, reps: lastR + 1, note: `+1 Rep Target (Level 2 Primed RPE)`, diffTier: "Lvl 2 (Overload)" };
-      }
-      return { weight: lastW + 2.5, reps: Math.max(8, lastR - 1), note: `+2.5kg Load Overload (Level 2 RPE • Previous: ${lastW}kg)`, diffTier: "Lvl 2 (Overload)" };
-    } else if (lastFail === 3) {
-      if (lastR >= 12 && !isBW) {
-        return { weight: lastW + 2.5, reps: 8, note: `+2.5kg Step-Up (Reached 12-Rep Ceiling)`, diffTier: "Lvl 3 (Target)" };
-      }
-      return { weight: lastW, reps: lastR + 1, note: `+1 Rep Consolidation (Target: ${lastR + 1}r @ ${lastW > 0 ? lastW + 'kg' : 'BW'})`, diffTier: "Lvl 3 (Target)" };
-    } else {
-      return { weight: lastW, reps: lastR, note: `Hold Load & Solidify Form (Consolidate @ ${lastW > 0 ? lastW + 'kg' : 'BW'})`, diffTier: "Lvl 4-5 (Hold)" };
-    }
-  }
-
-  static getProgramProjectedDay(targetDateObj, scheduleOverrides = {}) {
-    const anchorDate = new Date(2026, 7, 23, 12, 0, 0); // Aligned to Aug 23 Base Anchor
-    const targetMidday = new Date(targetDateObj.getFullYear(), targetDateObj.getMonth(), targetDateObj.getDate(), 12, 0, 0);
-    const dateKey = getLocalDateKey(targetMidday);
-
-    if (scheduleOverrides && scheduleOverrides[dateKey]) {
-      const customSplit = scheduleOverrides[dateKey];
-      const isRest = customSplit.toLowerCase().includes("rest");
-      return { split: customSplit, phase: "Custom Schedule Alignment", phaseBadge: "User Overridden", repScheme: "8–12 Reps • 2–3 RIR", isDeload: false, isRest };
-    }
-
-    const diffTime = targetMidday.getTime() - anchorDate.getTime();
-    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-    const totalWeeks = Math.max(1, Math.floor(diffDays / 7) + 1);
-
-    let phase = "Mesocycle 1: Hypertrophy Foundation";
-    let phaseBadge = `Meso 1 (W${totalWeeks}) • Base`;
-    let repScheme = "8–12 Reps • 2–3 RIR";
-    let isDeload = false;
-
-    if (totalWeeks === 9 || totalWeeks === 18) {
-      phase = "Deload & Connective Recovery";
-      phaseBadge = "Deload Week • 50% Sets";
-      repScheme = "8–10 Reps • 4–5 RIR";
-      isDeload = true;
-    } else if (totalWeeks >= 10 && totalWeeks <= 17) {
-      phase = "Mesocycle 2: Strength & Load Progression";
-      phaseBadge = `Meso 2 (W${totalWeeks - 9}) • Strength`;
-      repScheme = "5–8 Reps • 1–2 RIR";
-    }
-
-    const seqLen = ROTATION_SEQUENCE.length;
-    const seqIndex = ((diffDays % seqLen) + seqLen) % seqLen;
-    const splitName = ROTATION_SEQUENCE[seqIndex];
-    const isRest = splitName.toLowerCase().includes("rest");
-
-    return { split: splitName, phase, phaseBadge, repScheme, isDeload, isRest, weekNumber: totalWeeks };
-  }
-
-  static detectPersonalRecords(history, currentExerciseName, newWeight, newReps) {
-    const w = parseFloat(newWeight) || 0;
-    const r = parseInt(newReps) || 0;
-    if (w <= 0 || r <= 0) return null;
-
-    const currentEst1RM = this.calculate1RM(w, r);
-    let maxPreviousWeight = 0;
-    let maxPreviousRepsAtWeight = 0;
-    let maxPreviousEst1RM = 0;
-
-    for (const session of Object.values(history || {})) {
-      for (const ex of session.exercises || []) {
-        if (ex.name && ex.name.toLowerCase() === currentExerciseName.toLowerCase()) {
-          for (const s of ex.sets || []) {
-            if (s.done) {
-              const rawW = parseFloat(s.weight) || 0;
-              const prevW = (ex.usesBar && rawW > 0) ? (ex.barWeight || 20) + rawW : rawW;
-              const prevR = parseInt(s.reps) || 0;
-              if (prevW > maxPreviousWeight) maxPreviousWeight = prevW;
-              if (prevW === w && prevR > maxPreviousRepsAtWeight) maxPreviousRepsAtWeight = prevR;
-              const est = this.calculate1RM(prevW, prevR);
-              if (est > maxPreviousEst1RM) maxPreviousEst1RM = est;
-            }
-          }
-        }
-      }
-    }
-
-    const isWeightPR = maxPreviousWeight > 0 && w > maxPreviousWeight;
-    const isRepPR = maxPreviousRepsAtWeight > 0 && r > maxPreviousRepsAtWeight;
-    const isEst1RMPR = maxPreviousEst1RM > 0 && currentEst1RM > maxPreviousEst1RM;
-
-    if (isWeightPR || isRepPR || isEst1RMPR) {
-      return { isWeightPR, isRepPR, isEst1RMPR, weight: w, reps: r, est1RM: currentEst1RM, prev1RM: maxPreviousEst1RM };
-    }
-    return null;
-  }
-}
-
-// ============================================================
-// SECTION 3: AUDIO SYNTHESIZER & CELEBRATION ENGINE
-// ============================================================
-
-class SomaAudioCelebration {
-  static playSound(type = "chime") {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      if (type === "chime") {
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.5);
-      } else if (type === "pr") {
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.7);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.7);
-      }
-    } catch (e) {}
-  }
-
-  static triggerConfetti(containerEl) {
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.className = "soma-confetti-canvas";
-      containerEl.appendChild(canvas);
-      const ctx = canvas.getContext("2d");
-      canvas.width = containerEl.clientWidth || 600;
-      canvas.height = containerEl.clientHeight || 700;
-
-      const particles = [];
-      const colors = ["#10b981", "#f59e0b", "#e5e7eb", "#9ca3af", "#34d399", "#60a5fa"];
-      for (let i = 0; i < 45; i++) {
-        particles.push({
-          x: canvas.width / 2,
-          y: canvas.height / 2,
-          vx: (Math.random() - 0.5) * 12,
-          vy: (Math.random() - 0.7) * 14,
-          size: Math.random() * 5 + 3,
-          color: colors[Math.floor(Math.random() * colors.length)],
-          alpha: 1
-        });
-      }
-
-      let frames = 0;
-      const render = () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for (const p of particles) {
-          p.x += p.vx;
-          p.y += p.vy;
-          p.vy += 0.35;
-          p.alpha -= 0.02;
-          ctx.fillStyle = p.color;
-          ctx.globalAlpha = Math.max(0, p.alpha);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        frames++;
-        if (frames < 50) requestAnimationFrame(render);
-        else canvas.remove();
-      };
-      render();
-    } catch (e) {}
-  }
-}
-
-// ============================================================
-// SECTION 4: STATE STORE & PERSISTENCE
-// ============================================================
-
-class SomaWorkoutState {
-  constructor() {
-    this.sessionStartTime = Date.now();
-    this.activeSplit = "Legs A (Quad / Squat Dominant)";
-    this.sessionExercises = [];
-    this.undoStack = [];
-    this.redoStack = [];
-  }
-
-  recordSnapshot() {
-    if (this.undoStack.length > 25) this.undoStack.shift();
-    this.undoStack.push(JSON.stringify(this.sessionExercises));
-    this.redoStack = [];
-  }
-
-  undo() {
-    if (this.undoStack.length === 0) return false;
-    this.redoStack.push(JSON.stringify(this.sessionExercises));
-    this.sessionExercises = JSON.parse(this.undoStack.pop());
-    return true;
-  }
-
-  redo() {
-    if (this.redoStack.length === 0) return false;
-    this.undoStack.push(JSON.stringify(this.sessionExercises));
-    this.sessionExercises = JSON.parse(this.redoStack.pop());
-    return true;
-  }
-}
-
-// ============================================================
-// SECTION 5: OBSIDIAN PLUGIN REGISTRATION & CONTROLLER
-// ============================================================
-
-/* ==========================================================================
-   Habit Tracker Engine (merged from the standalone Habit Radar plugin)
-   Registered as the ```habittracker``` code block, and also embedded as
-   the "Habits" tab inside the main soma-coach dashboard.
-   ========================================================================== */
-
-const DEFAULT_HABITS = [
-  {
-    id: "gym-movement",
-    name: "Gym & Movement",
-    desc: "Hit daily training split",
-    icon: "🏋️",
-    color: "#22c55e",
-    goalDaysPerWeek: 5,
-    history: {},
-    photos: {}
-  },
-  {
-    id: "clean-nutrition",
-    name: "Clean Nutrition",
-    desc: "Hit calorie & protein target",
-    icon: "🥗",
-    color: "#ef4444",
-    goalDaysPerWeek: 7,
-    history: {},
-    photos: {}
-  },
-  {
-    id: "hydration",
-    name: "Hydration",
-    desc: "Drink 2.5L+ water",
-    icon: "💧",
-    color: "#38bdf8",
-    goalDaysPerWeek: 7,
-    history: {},
-    photos: {}
-  },
-  {
-    id: "deep-focus",
-    name: "Deep Focus",
-    desc: "90+ min engineering / deep sprint",
-    icon: "🧠",
-    color: "#a855f7",
-    goalDaysPerWeek: 5,
-    history: {},
-    photos: {}
-  }
-];
-
-const DEFAULT_HABIT_SETTINGS = {
-  defaultTimerDuration: 90,
-  startOfWeek: "monday",
-  accentColor: "#22c55e",
-  habits: DEFAULT_HABITS
-};
-
-function addDays(date, days) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function formatDateLong(dateStr) {
-  const d = parseLocalDateKey(dateStr);
-  return d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-}
-
-function formatTimeShort(ts) {
-  if (!ts) return "";
-  return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-function readAndCompressImage(file, maxDim = 1000, quality = 0.82) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = () => reject(new Error("Could not load image."));
-      img.src = e.target.result;
-    };
-    reader.onerror = () => reject(new Error("Could not read file."));
-    reader.readAsDataURL(file);
-  });
-}
-
-function pickPhoto() {
-  return new Promise((resolve, reject) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.capture = "environment";
-    input.style.display = "none";
-    document.body.appendChild(input);
-
-    input.onchange = async () => {
-      const file = input.files && input.files[0];
-      input.remove();
-      if (!file) {
-        reject(new Error("cancelled"));
-        return;
-      }
-      try {
-        const dataUrl = await readAndCompressImage(file);
-        resolve(dataUrl);
-      } catch (err) {
-        reject(err);
-      }
-    };
-
-    input.click();
-  });
-}
-
-function calculateHabitStats(habit) {
-  if (!habit.history) habit.history = {};
-  const todayStr = getLocalDateKey(new Date());
-  const today = parseLocalDateKey(todayStr);
-
-  let currentStreak = 0;
-  let check = new Date(today);
-
-  if (!habit.history[getLocalDateKey(check)]) {
-    check = addDays(check, -1);
-  }
-
-  while (habit.history[getLocalDateKey(check)] === true) {
-    currentStreak++;
-    check = addDays(check, -1);
-  }
-
-  const dates = Object.keys(habit.history)
-    .filter((k) => habit.history[k] === true)
-    .sort();
-
-  let bestStreak = 0;
-  let tempStreak = 0;
-  let prevDate = null;
-
-  for (const dateStr of dates) {
-    const d = parseLocalDateKey(dateStr);
-    if (!prevDate) {
-      tempStreak = 1;
-    } else {
-      const diff = Math.round((d - prevDate) / (1000 * 60 * 60 * 24));
-      if (diff === 1) tempStreak++;
-      else if (diff > 1) tempStreak = 1;
-    }
-    if (tempStreak > bestStreak) bestStreak = tempStreak;
-    prevDate = d;
-  }
-  if (currentStreak > bestStreak) bestStreak = currentStreak;
-
-  const totalCompletions = dates.length;
-  let weekDone = 0;
-  for (let i = 0; i < 7; i++) {
-    const dStr = getLocalDateKey(addDays(today, -i));
-    if (habit.history[dStr] === true) weekDone++;
-  }
-  const weekRate = Math.round((weekDone / 7) * 100);
-
-  return { currentStreak, bestStreak, totalCompletions, weekRate };
-}
-
-class HabitRadarUIController {
-  constructor(app, plugin, targetEl, options = {}) {
-    this.app = app;
-    this.plugin = plugin;
-    this.targetEl = targetEl;
-    this.options = options;
-    this.activeTab = options.view || "today";
-
-    this.showHeader = options.header !== false;
-    this.showSummary = options.summary !== false;
-    this.showTabs = options.tabs !== false;
-
-    this.timerInterval = null;
-    this.timerSecondsLeft = (this.plugin.settings?.defaultTimerDuration || 90) * 60;
-    this.timerTotalSeconds = this.timerSecondsLeft;
-    this.timerIsRunning = false;
-    this.timerSelectedHabitId = this.plugin.settings?.habits?.[0]?.id || "";
-  }
-
-  destroy() {
-    if (this.timerInterval) clearInterval(this.timerInterval);
-  }
-
-  render() {
-    const container = this.targetEl;
-    container.empty();
-    container.addClass("habit-radar-container");
-
-    if (this.showHeader) {
-      this.renderHeader(container);
-    }
-
-    if (this.showSummary) {
-      this.renderSummaryCards(container);
-    }
-
-    const contentArea = container.createDiv({ cls: "hr-content-area" });
-
-    switch (this.activeTab) {
-      case "today":
-        this.renderTodayView(contentArea);
-        break;
-      case "weekly":
-        this.renderWeeklyView(contentArea);
-        break;
-      case "monthly":
-        this.renderMonthlyView(contentArea);
-        break;
-      case "yearly":
-        this.renderYearlyView(contentArea);
-        break;
-      case "timer":
-        this.renderTimerView(contentArea);
-        break;
-      default:
-        this.renderTodayView(contentArea);
-        break;
-    }
-  }
-
-  renderHeader(container) {
-    const header = container.createDiv({ cls: "hr-header" });
-    const titleWrap = header.createDiv({ cls: "hr-title-wrap" });
-
-    const titleH1 = titleWrap.createEl("h1", { text: "Habit Radar" });
-    titleH1.createSpan({ cls: "hr-title-badge", text: "Pro" });
-
-    titleWrap.createEl("p", {
-      cls: "hr-subtitle",
-      text: "Build consistency. Track what matters."
-    });
-
-    if (this.showTabs) {
-      const nav = header.createDiv({ cls: "hr-nav-tabs" });
-      const tabs = ["Today", "Weekly", "Monthly", "Yearly", "Timer"];
-
-      tabs.forEach((tab) => {
-        const tabKey = tab.toLowerCase();
-        const btn = nav.createEl("button", {
-          cls: `hr-tab-btn ${this.activeTab === tabKey ? "active" : ""}`,
-          text: tab
-        });
-        btn.onclick = () => {
-          this.activeTab = tabKey;
-          this.render();
-        };
-      });
-    }
-  }
-
-  renderSummaryCards(container) {
-    const habits = this.plugin.settings.habits || [];
-    const todayStr = getLocalDateKey(new Date());
-
-    let completedToday = 0;
-    habits.forEach((h) => {
-      if (h.history && h.history[todayStr] === true) completedToday++;
-    });
-
-    const totalHabits = habits.length;
-    const todayPercent = totalHabits > 0 ? Math.round((completedToday / totalHabits) * 100) : 0;
-
-    let maxCurrentStreak = 0;
-    let maxBestStreak = 0;
-    let avgWeekRate = 0;
-
-    habits.forEach((h) => {
-      const stats = calculateHabitStats(h);
-      if (stats.currentStreak > maxCurrentStreak) maxCurrentStreak = stats.currentStreak;
-      if (stats.bestStreak > maxBestStreak) maxBestStreak = stats.bestStreak;
-      avgWeekRate += stats.weekRate;
-    });
-
-    avgWeekRate = habits.length > 0 ? Math.round(avgWeekRate / habits.length) : 0;
-
-    const summaryGrid = container.createDiv({ cls: "hr-summary-grid" });
-
-    const cardData = [
-      { label: "TODAY", val: `${completedToday}/${totalHabits}`, sub: `${todayPercent}% Done` },
-      { label: "STREAK", val: `${maxCurrentStreak}d`, sub: "Active Streak" },
-      { label: "BEST", val: `${maxBestStreak}d`, sub: "Record Streak" },
-      { label: "THIS WEEK", val: `${avgWeekRate}%`, sub: "Consistency" }
-    ];
-
-    cardData.forEach((cd) => {
-      const card = summaryGrid.createDiv({ cls: "hr-stat-card" });
-      card.createDiv({ cls: "hr-stat-label", text: cd.label });
-      card.createDiv({ cls: "hr-stat-val", text: cd.val });
-      card.createDiv({ cls: "hr-stat-sub", text: cd.sub });
-    });
-  }
-
-  renderTodayView(container) {
-    const actionBar = container.createDiv({ cls: "hr-action-bar" });
-    actionBar.createEl("h2", { cls: "hr-section-heading", text: "Today's Routine" });
-
-    const addBtn = actionBar.createEl("button", { cls: "hr-add-btn", text: "+ Add Habit" });
-    addBtn.onclick = () => {
-      new HabitEditModal(this.app, this.plugin, null, () => this.render()).open();
-    };
-
-    const stack = container.createDiv({ cls: "hr-habit-stack" });
-    const todayStr = getLocalDateKey(new Date());
-
-    (this.plugin.settings.habits || []).forEach((habit) => {
-      if (!habit.photos) habit.photos = {};
-      if (!habit.history) habit.history = {};
-
-      const isDoneToday = habit.history[todayStr] === true;
-      const stats = calculateHabitStats(habit);
-      const photoCount = Object.keys(habit.photos).length;
-
-      const card = stack.createDiv({ cls: "hr-habit-card" });
-      const header = card.createDiv({ cls: "hr-card-header" });
-
-      const info = header.createDiv({ cls: "hr-card-info" });
-      const iconBox = info.createDiv({ cls: "hr-card-icon-box" });
-      iconBox.setText(habit.icon || "🎯");
-      iconBox.style.backgroundColor = `${habit.color}22`;
-      iconBox.style.color = habit.color;
-
-      const text = info.createDiv({ cls: "hr-card-text" });
-      text.createEl("h3", { cls: "hr-card-title", text: habit.name });
-      const goalLabel = habit.goalDaysPerWeek >= 7 ? "Every day" : `${habit.goalDaysPerWeek}x / week`;
-      text.createEl("p", { cls: "hr-card-desc", text: `${habit.desc || ""} · 🎯 ${goalLabel}` });
-
-      const controls = header.createDiv({ cls: "hr-card-controls" });
-
-      if (stats.currentStreak > 0) {
-        controls.createDiv({ cls: "hr-streak-badge", text: `🔥 ${stats.currentStreak}d` });
-      }
-
-      const galleryBtn = controls.createEl("button", { cls: "hr-icon-btn" });
-      setIcon(galleryBtn, "images");
-      if (photoCount > 0) {
-        galleryBtn.createSpan({ cls: "hr-icon-btn-badge", text: String(photoCount) });
-      }
-      galleryBtn.onclick = (e) => {
-        e.stopPropagation();
-        new HabitPhotoGalleryModal(this.app, this.plugin, habit, () => this.render()).open();
-      };
-
-      const cameraBtn = controls.createEl("button", { cls: "hr-icon-btn" });
-      setIcon(cameraBtn, "camera");
-      cameraBtn.onclick = async (e) => {
-        e.stopPropagation();
-        try {
-          const dataUrl = await pickPhoto();
-          habit.photos[todayStr] = { data: dataUrl, ts: Date.now() };
-          habit.history[todayStr] = true;
-          await this.plugin.saveSettings();
-          new Notice(`📸 Proof photo saved for ${habit.name}`);
-          this.render();
-        } catch (err) {}
-      };
-
-      const checkBtn = controls.createEl("button", {
-        cls: `hr-check-circle ${isDoneToday ? "completed" : ""}`,
-        text: isDoneToday ? "✓" : "+"
-      });
-
-      if (isDoneToday) checkBtn.style.backgroundColor = habit.color;
-
-      checkBtn.onclick = async (e) => {
-        e.stopPropagation();
-        habit.history[todayStr] = !isDoneToday;
-        await this.plugin.saveSettings();
-        this.render();
-      };
-
-      const weekRow = card.createDiv({ cls: "hr-week-row" });
-      const weekDays = this.getWeekDays(new Date());
-
-      weekDays.forEach((d) => {
-        const dStr = getLocalDateKey(d.date);
-        const done = habit.history[dStr] === true;
-        const isToday = dStr === todayStr;
-        const hasPhoto = !!habit.photos[dStr];
-
-        const cell = weekRow.createDiv({ cls: "hr-week-day-cell" });
-        cell.createDiv({ cls: `hr-day-label ${isToday ? "today" : ""}`, text: d.label });
-
-        const dot = cell.createDiv({
-          cls: `hr-day-dot ${done ? "completed" : ""} ${isToday ? "is-today" : ""} ${hasPhoto ? "has-photo" : ""}`
-        });
-
-        if (done) {
-          dot.setText("✓");
-          dot.style.backgroundColor = habit.color;
-        }
-
-        cell.onclick = async () => {
-          habit.history[dStr] = !done;
-          await this.plugin.saveSettings();
-          this.render();
-        };
-      });
-    });
-  }
-
-  renderWeeklyView(container) {
-    const actionBar = container.createDiv({ cls: "hr-action-bar" });
-    actionBar.createEl("h2", { cls: "hr-section-heading", text: "Weekly Consistency" });
-
-    const stack = container.createDiv({ cls: "hr-habit-stack" });
-    const todayStr = getLocalDateKey(new Date());
-    const weekDays = this.getWeekDays(new Date());
-
-    (this.plugin.settings.habits || []).forEach((habit) => {
-      const stats = calculateHabitStats(habit);
-      const card = stack.createDiv({ cls: "hr-habit-card" });
-
-      const header = card.createDiv({ cls: "hr-card-header" });
-      const info = header.createDiv({ cls: "hr-card-info" });
-      const iconBox = info.createDiv({ cls: "hr-card-icon-box" });
-      iconBox.setText(habit.icon || "🎯");
-      iconBox.style.backgroundColor = `${habit.color}22`;
-      iconBox.style.color = habit.color;
-
-      const text = info.createDiv({ cls: "hr-card-text" });
-      text.createEl("h3", { cls: "hr-card-title", text: habit.name });
-      text.createEl("p", { cls: "hr-card-desc", text: `${stats.weekRate}% this week` });
-
-      const weekRow = card.createDiv({ cls: "hr-week-row" });
-
-      weekDays.forEach((d) => {
-        const dStr = getLocalDateKey(d.date);
-        const done = habit.history[dStr] === true;
-        const isToday = dStr === todayStr;
-        const isPast = d.date < new Date(todayStr) && !isToday;
-
-        const cell = weekRow.createDiv({ cls: "hr-week-day-cell" });
-        cell.createDiv({ cls: `hr-day-label ${isToday ? "today" : ""}`, text: d.label });
-
-        const dot = cell.createDiv({
-          cls: `hr-day-dot ${done ? "completed" : isPast ? "missed" : ""} ${isToday ? "is-today" : ""}`
-        });
-
-        if (done) {
-          dot.setText("✓");
-          dot.style.backgroundColor = habit.color;
-        } else if (isPast) {
-          dot.setText("✕");
-        }
-
-        cell.onclick = async () => {
-          habit.history[dStr] = !done;
-          await this.plugin.saveSettings();
-          this.render();
-        };
-      });
-    });
-  }
-
-  renderMonthlyView(container) {
-    const actionBar = container.createDiv({ cls: "hr-action-bar" });
-    actionBar.createEl("h2", { cls: "hr-section-heading", text: "30-Day Activity Matrix" });
-
-    const grid = container.createDiv({ cls: "hr-monthly-grid" });
-    const today = new Date();
-
-    (this.plugin.settings.habits || []).forEach((habit) => {
-      const card = grid.createDiv({ cls: "hr-habit-card" });
-      const header = card.createDiv({ cls: "hr-card-header" });
-
-      const info = header.createDiv({ cls: "hr-card-info" });
-      const iconBox = info.createDiv({ cls: "hr-card-icon-box" });
-      iconBox.setText(habit.icon || "🎯");
-      iconBox.style.backgroundColor = `${habit.color}22`;
-      iconBox.style.color = habit.color;
-
-      const text = info.createDiv({ cls: "hr-card-text" });
-      text.createEl("h3", { cls: "hr-card-title", text: habit.name });
-      text.createEl("p", { cls: "hr-card-desc", text: "Click pixel to toggle" });
-
-      const heatmap = card.createDiv({ cls: "hr-month-heatmap" });
-
-      for (let i = 27; i >= 0; i--) {
-        const d = addDays(today, -i);
-        const dStr = getLocalDateKey(d);
-        const done = habit.history[dStr] === true;
-
-        const cell = heatmap.createDiv({
-          cls: `hr-pixel-cell ${done ? "active" : ""}`
-        });
-
-        if (done) cell.style.backgroundColor = habit.color;
-        cell.setAttribute("title", `${dStr}: ${done ? "Completed" : "Incomplete"}`);
-
-        cell.onclick = async () => {
-          habit.history[dStr] = !done;
-          await this.plugin.saveSettings();
-          this.render();
-        };
-      }
-    });
-  }
-
-  renderYearlyView(container) {
-    const actionBar = container.createDiv({ cls: "hr-action-bar" });
-    actionBar.createEl("h2", { cls: "hr-section-heading", text: "Yearly Overview" });
-
-    const wrapper = container.createDiv({ cls: "hr-yearly-wrapper" });
-    const yearGrid = wrapper.createDiv({ cls: "hr-year-grid" });
-
-    const today = new Date();
-    const totalDays = 52 * 7;
-    const startDate = addDays(today, -totalDays + 1);
-
-    for (let i = 0; i < totalDays; i++) {
-      const d = addDays(startDate, i);
-      const dStr = getLocalDateKey(d);
-
-      let count = 0;
-      (this.plugin.settings.habits || []).forEach((h) => {
-        if (h.history && h.history[dStr] === true) count++;
-      });
-
-      const cell = yearGrid.createDiv({ cls: "hr-year-cell" });
-
-      if (count > 0 && this.plugin.settings.habits.length > 0) {
-        const opacity = Math.min(count / this.plugin.settings.habits.length, 1);
-        cell.style.backgroundColor = this.plugin.settings.accentColor;
-        cell.style.opacity = Math.max(opacity, 0.35);
-      }
-
-      cell.setAttribute("title", `${dStr} — ${count} habits completed`);
-    }
-  }
-
-  renderTimerView(container) {
-    const timerCard = container.createDiv({ cls: "hr-timer-container" });
-
-    const select = timerCard.createEl("select", { cls: "hr-timer-habit-select" });
-    (this.plugin.settings.habits || []).forEach((h) => {
-      const opt = select.createEl("option", { text: `${h.icon} ${h.name}`, value: h.id });
-      if (h.id === this.timerSelectedHabitId) opt.selected = true;
-    });
-
-    select.onchange = (e) => {
-      this.timerSelectedHabitId = e.target.value;
-    };
-
-    const ringWrapper = timerCard.createDiv({ cls: "hr-timer-ring-wrapper" });
-    const r = 80;
-    const circ = 2 * Math.PI * r;
-    const progress = this.timerTotalSeconds > 0 ? (this.timerSecondsLeft / this.timerTotalSeconds) * circ : 0;
-
-    ringWrapper.innerHTML = `
-      <svg width="190" height="190" style="transform: rotate(-90deg);">
-        <circle cx="95" cy="95" r="${r}" stroke="rgba(255, 255, 255, 0.08)" stroke-width="10" fill="transparent" />
-        <circle cx="95" cy="95" r="${r}" stroke="${this.plugin.settings.accentColor}" stroke-width="10" stroke-dasharray="${circ}" stroke-dashoffset="${circ - progress}" stroke-linecap="round" fill="transparent" style="transition: stroke-dashoffset 0.4s ease;" />
-      </svg>
-    `;
-
-    const display = ringWrapper.createDiv({ cls: "hr-timer-display" });
-    const mins = Math.floor(this.timerSecondsLeft / 60);
-    const secs = this.timerSecondsLeft % 60;
-    display.createDiv({ cls: "hr-time-left", text: `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}` });
-    display.createDiv({ cls: "hr-timer-status", text: this.timerIsRunning ? "Focusing..." : "Ready" });
-
-    const controls = timerCard.createDiv({ cls: "hr-timer-controls" });
-
-    const playBtn = controls.createEl("button", {
-      cls: "hr-timer-btn primary",
-      text: this.timerIsRunning ? "Pause" : "Start"
-    });
-
-    playBtn.onclick = () => {
-      if (this.timerIsRunning) this.pauseTimer();
-      else this.startTimer();
-      this.render();
-    };
-
-    const resetBtn = controls.createEl("button", { cls: "hr-timer-btn", text: "Reset" });
-    resetBtn.onclick = () => {
-      this.resetTimer();
-      this.render();
-    };
-
-    const skipBtn = controls.createEl("button", { cls: "hr-timer-btn", text: "Complete" });
-    skipBtn.onclick = () => this.finishTimer();
-  }
-
-  startTimer() {
-    if (this.timerIsRunning) return;
-    this.timerIsRunning = true;
-    this.timerInterval = setInterval(() => {
-      if (this.timerSecondsLeft > 0) {
-        this.timerSecondsLeft--;
-        this.render();
-      } else {
-        this.finishTimer();
-      }
-    }, 1000);
-  }
-
-  pauseTimer() {
-    this.timerIsRunning = false;
-    if (this.timerInterval) clearInterval(this.timerInterval);
-  }
-
-  resetTimer() {
-    this.pauseTimer();
-    this.timerSecondsLeft = (this.plugin.settings?.defaultTimerDuration || 90) * 60;
-    this.timerTotalSeconds = this.timerSecondsLeft;
-  }
-
-  async finishTimer() {
-    this.pauseTimer();
-    this.timerSecondsLeft = (this.plugin.settings?.defaultTimerDuration || 90) * 60;
-
-    const todayStr = getLocalDateKey(new Date());
-    const habit = (this.plugin.settings.habits || []).find((h) => h.id === this.timerSelectedHabitId);
-
-    if (habit) {
-      if (!habit.history) habit.history = {};
-      habit.history[todayStr] = true;
-      await this.plugin.saveSettings();
-      new Notice(`🎉 Session complete: ${habit.name}`);
-    }
-    this.render();
-  }
-
-  getWeekDays(centerDate) {
-    const startOfWeek = this.plugin.settings?.startOfWeek || "monday";
-    const d = new Date(centerDate);
-    const day = d.getDay();
-    const diff = startOfWeek === "monday" ? (day === 0 ? -6 : 1 - day) : -day;
-    const start = addDays(d, diff);
-    const labels = startOfWeek === "monday" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-    return labels.map((label, idx) => ({
-      label,
-      date: addDays(start, idx)
-    }));
-  }
-}
-
-class HabitRadarRenderChild extends MarkdownRenderChild {
-  constructor(containerEl, controller) {
-    super(containerEl);
-    this.controller = controller;
-  }
-
-  onload() {
-    this.controller.render();
-  }
-
-  onunload() {
-    this.controller.destroy();
-  }
-}
-
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const WEEKDAY_LABELS_MON = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-class HabitPhotoGalleryModal extends Modal {
-  constructor(app, plugin, habit, onChange) {
-    super(app);
-    this.plugin = plugin;
-    this.habit = habit;
-    this.onChange = onChange;
-    const now = new Date();
-    this.viewYear = now.getFullYear();
-    this.viewMonth = now.getMonth();
-  }
-
-  onOpen() {
-    this.modalEl.addClass("hr-gallery-modal");
-    if (!this.habit.photos) this.habit.photos = {};
-    this.render();
-  }
-
-  onClose() {
-    this.contentEl.empty();
-  }
-
-  changeMonth(delta) {
-    let m = this.viewMonth + delta;
-    let y = this.viewYear;
-    if (m < 0) {
-      m = 11;
-      y -= 1;
-    } else if (m > 11) {
-      m = 0;
-      y += 1;
-    }
-    this.viewMonth = m;
-    this.viewYear = y;
-    this.render();
-  }
-
-  async handleDayClick(dStr, photo, isFuture) {
-    if (isFuture) return;
-
-    if (photo) {
-      new HabitPhotoLightboxModal(this.app, this.plugin, this.habit, dStr, photo, {
-        onUpdated: () => {
-          this.render();
-          if (this.onChange) this.onChange();
-        },
-        onDeleted: async () => {
-          delete this.habit.photos[dStr];
-          await this.plugin.saveSettings();
-          this.render();
-          if (this.onChange) this.onChange();
-        }
-      }).open();
-      return;
-    }
-
-    try {
-      const dataUrl = await pickPhoto();
-      this.habit.photos[dStr] = { data: dataUrl, ts: Date.now() };
-      this.habit.history[dStr] = true;
-      await this.plugin.saveSettings();
-      new Notice(`📸 Proof photo saved for ${formatDateLong(dStr)}`);
-      this.render();
-      if (this.onChange) this.onChange();
-    } catch (err) {
-      // user cancelled the file picker — nothing to do
-    }
-  }
-
-  render() {
-    const { contentEl } = this;
-    contentEl.empty();
-
-    const header = contentEl.createDiv({ cls: "hr-gallery-header" });
-    const iconBox = header.createDiv({ cls: "hr-gallery-icon" });
-    iconBox.setText(this.habit.icon || "🎯");
-    iconBox.style.backgroundColor = `${this.habit.color}22`;
-    iconBox.style.color = this.habit.color;
-
-    const titleWrap = header.createDiv({ cls: "hr-gallery-title-wrap" });
-    titleWrap.createEl("h2", { text: this.habit.name });
-    titleWrap.createEl("p", { text: "Proof photos history — tap a day to add or view a photo" });
-
-    const nav = contentEl.createDiv({ cls: "hr-gallery-nav" });
-    const prevBtn = nav.createEl("button", { cls: "hr-icon-btn hr-gallery-nav-btn" });
-    setIcon(prevBtn, "chevron-left");
-    prevBtn.onclick = () => this.changeMonth(-1);
-
-    nav.createDiv({ cls: "hr-gallery-month-label", text: `${MONTH_NAMES[this.viewMonth]} ${this.viewYear}` });
-
-    const nextBtn = nav.createEl("button", { cls: "hr-icon-btn hr-gallery-nav-btn" });
-    setIcon(nextBtn, "chevron-right");
-    nextBtn.onclick = () => this.changeMonth(1);
-
-    const weekdayRow = contentEl.createDiv({ cls: "hr-gallery-weekday-row" });
-    WEEKDAY_LABELS_MON.forEach((label) => {
-      weekdayRow.createDiv({ cls: "hr-gallery-weekday-label", text: label });
-    });
-
-    const grid = contentEl.createDiv({ cls: "hr-gallery-calendar" });
-    const todayStr = getLocalDateKey(new Date());
-    const today = parseLocalDateKey(todayStr);
-    const firstOfMonth = new Date(this.viewYear, this.viewMonth, 1);
-    const leadingBlanks = (firstOfMonth.getDay() + 6) % 7; // Monday-first offset
-    const daysInMonth = new Date(this.viewYear, this.viewMonth + 1, 0).getDate();
-
-    for (let i = 0; i < leadingBlanks; i++) {
-      grid.createDiv({ cls: "hr-gallery-day-cell hr-gallery-day-empty" });
-    }
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const cellDate = new Date(this.viewYear, this.viewMonth, day);
-      const dStr = getLocalDateKey(cellDate);
-      const photo = this.habit.photos[dStr];
-      const isFuture = cellDate > today;
-
-      const cell = grid.createDiv({
-        cls: `hr-gallery-day-cell ${dStr === todayStr ? "is-today" : ""} ${photo ? "has-photo" : ""} ${isFuture ? "is-future" : ""}`
-      });
-
-      if (photo) {
-        const thumb = cell.createDiv({ cls: "hr-gallery-thumb" });
-        thumb.style.backgroundImage = `url(${photo.data})`;
-        cell.createDiv({ cls: "hr-gallery-day-num hr-gallery-day-num-overlay", text: String(day) });
-      } else {
-        cell.createDiv({ cls: "hr-gallery-day-num", text: String(day) });
-        if (!isFuture) {
-          cell.createDiv({ cls: "hr-gallery-add-hint" }).setText("+");
-        }
-      }
-
-      if (!isFuture) {
-        cell.onclick = () => this.handleDayClick(dStr, photo, isFuture);
-      }
-    }
-  }
-}
-
-class HabitPhotoLightboxModal extends Modal {
-  constructor(app, plugin, habit, dateStr, photo, callbacks = {}) {
-    super(app);
-    this.plugin = plugin;
-    this.habit = habit;
-    this.dateStr = dateStr;
-    this.photo = photo;
-    this.onUpdated = callbacks.onUpdated;
-    this.onDeleted = callbacks.onDeleted;
-  }
-
-  onOpen() {
-    this.modalEl.addClass("hr-lightbox-modal");
-    const { contentEl } = this;
-    contentEl.empty();
-
-    contentEl.createDiv({ cls: "hr-lightbox-date", text: formatDateLong(this.dateStr) });
-
-    const imgWrap = contentEl.createDiv({ cls: "hr-lightbox-image-wrap" });
-    const img = imgWrap.createEl("img", { cls: "hr-lightbox-image" });
-    img.src = this.photo.data;
-
-    const meta = contentEl.createDiv({ cls: "hr-lightbox-meta" });
-    if (this.photo.ts) meta.setText(`Taken at ${formatTimeShort(this.photo.ts)}`);
-
-    const actions = contentEl.createDiv({ cls: "hr-lightbox-actions" });
-
-    const retakeBtn = actions.createEl("button", { cls: "hr-timer-btn", text: "Retake" });
-    retakeBtn.onclick = async () => {
-      try {
-        const dataUrl = await pickPhoto();
-        this.photo.data = dataUrl;
-        this.photo.ts = Date.now();
-        await this.plugin.saveSettings();
-        img.src = dataUrl;
-        meta.setText(`Taken at ${formatTimeShort(this.photo.ts)}`);
-        new Notice("📸 Photo updated");
-        if (this.onUpdated) this.onUpdated();
-      } catch (err) {}
-    };
-
-    const deleteBtn = actions.createEl("button", { cls: "hr-timer-btn hr-lightbox-delete", text: "Delete Photo" });
-    deleteBtn.onclick = async () => {
-      this.close();
-      if (this.onDeleted) await this.onDeleted();
-    };
-  }
-
-  onClose() {
-    this.contentEl.empty();
-  }
-}
-
-class HabitEditModal extends Modal {
-  constructor(app, plugin, habit, onSave) {
-    super(app);
-    this.plugin = plugin;
-    this.habit = habit;
-    this.onSave = onSave;
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    this.modalEl.addClass("hr-edit-modal");
-    contentEl.empty();
-    contentEl.createEl("h2", { text: this.habit ? "Edit Habit" : "Add Habit" });
-
-    let name = this.habit?.name || "";
-    let desc = this.habit?.desc || "";
-    let icon = this.habit?.icon || "🎯";
-    let color = this.habit?.color || "#22c55e";
-    let goalDaysPerWeek = this.habit?.goalDaysPerWeek ?? 7;
-
-    new Setting(contentEl).setName("Name").addText((text) => text.setValue(name).onChange((v) => (name = v)));
-    new Setting(contentEl).setName("Description").addText((text) => text.setValue(desc).onChange((v) => (desc = v)));
-    new Setting(contentEl).setName("Icon").addText((text) => text.setValue(icon).onChange((v) => (icon = v)));
-    new Setting(contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((v) => (color = v)));
-
-    new Setting(contentEl).addButton((btn) => {
-      btn.setButtonText("Save").setCta().onClick(async () => {
-        if (!name.trim()) {
-          new Notice("Name is required");
-          return;
-        }
-        if (this.habit) {
-          this.habit.name = name;
-          this.habit.desc = desc;
-          this.habit.icon = icon;
-          this.habit.color = color;
-          this.habit.goalDaysPerWeek = goalDaysPerWeek;
-        } else {
-          this.plugin.settings.habits.push({
-            id: `habit-${Date.now()}`,
-            name,
-            desc,
-            icon,
-            color,
-            goalDaysPerWeek,
-            history: {},
-            photos: {}
-          });
-        }
-        await this.plugin.saveSettings();
-        this.close();
-        if (this.onSave) this.onSave();
-      });
-    });
-  }
-
-  onClose() {
-    this.contentEl.empty();
-  }
-}
-
-// Bridges the ported habit-tracker UI (which expects a `plugin.settings` /
-// `plugin.saveSettings()` interface, same as the original standalone
-// plugin) onto SOMA's vault-file storage convention instead of Obsidian's
-// plugin data.json, so habit data lives alongside the rest of SOMA's data
-// at apps/scripts/soma-habits.json.
-class SomaHabitStore {
-  constructor(pluginRef) {
-    this.pluginRef = pluginRef;
-    this.settings = null;
-  }
-
-  async load() {
-    const data = await this.pluginRef.readVaultJson(HABITS_FILE_PATH, null);
-    this.settings = Object.assign({}, DEFAULT_HABIT_SETTINGS, data || {});
-    if (!this.settings.habits || this.settings.habits.length === 0) {
-      this.settings.habits = JSON.parse(JSON.stringify(DEFAULT_HABITS));
-    }
-    return this.settings;
-  }
-
-  async saveSettings() {
-    await this.pluginRef.writeVaultJson(HABITS_FILE_PATH, this.settings);
-  }
-}
-
-
-module.exports = class SomaSmartCoachPlugin extends Plugin {
+const {
+  ALL_DOCK_TABS,
+  BASE_EXERCISE_DB,
+  BASE_FOOD_LIBRARY,
+  DEFAULT_GOALS,
+  DEFAULT_HABITS,
+  DEFAULT_HABIT_SETTINGS,
+  ROTATION_SEQUENCE,
+  ROUTINE_PRESETS,
+  SOMA_SCHEMA_VERSION,
+  SomaIntelligenceEngine,
+  SomaWorkoutState,
+  WIDGET_PROFILES,
+  addDays,
+  calculateHabitStats,
+  formatDateLong,
+  formatTimeShort,
+  getLocalDateKey,
+  isDateKey,
+  migrateHistory,
+  migrateNutrition,
+  normalizeExercise,
+  normalizeSet,
+  nutritionEntryIsEmpty,
+  parseLocalDateKey,
+  sessionIsEmpty
+} = require("@soma/core");
+const {
+  ACCENT_PRESETS,
+  DEFAULT_ACCENT,
+  SomaAudioCelebration,
+  accentInk,
+  accentText,
+  applySomaTheme,
+  normalizeAccent,
+  pickPhoto,
+  readAndCompressImage,
+  resolveTheme
+} = require("@soma/browser");
+
+const { HISTORY_FILE_PATH, CUSTOM_EX_FILE_PATH, SETTINGS_FILE_PATH, NUTRITION_FILE_PATH,
+        CUSTOM_FOODS_FILE, DATA_FILE_PATH, REGISTRY_FILE_PATH, WEEKLY_FILE_PATH,
+        HABITS_FILE_PATH } = require("./paths.js");
+const { HabitRadarUIController } = require("./habits/ui-controller.js");
+const { HabitRadarRenderChild, HabitPhotoGalleryModal, HabitPhotoLightboxModal,
+        HabitEditModal, SomaHabitStore } = require("./habits/modals.js");
+const { SomaSettingTab } = require("./settings-tab.js");
+
+class SomaSmartCoachPlugin extends Plugin {
   async onload() {
     this.activeIntervals = new Set();
     this.addSettingTab(new SomaSettingTab(this.app, this));
@@ -1440,9 +68,25 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       await this.mountApp(el, ctx?.sourcePath || "");
     });
 
+    // 1b. Focused widgets. Same engine, different tab sets, so a daily note
+    //     can run macros, workout and habits as three independent blocks.
+    this.registerMarkdownCodeBlockProcessor("soma-workout", async (source, el, ctx) => {
+      await this.mountApp(el, ctx?.sourcePath || "", "workout");
+    });
+
+    this.registerMarkdownCodeBlockProcessor("soma-macros", async (source, el, ctx) => {
+      await this.mountApp(el, ctx?.sourcePath || "", "macros");
+    });
+
+    this.registerMarkdownCodeBlockProcessor("soma-sleep", async (source, el, ctx) => {
+      await this.mountApp(el, ctx?.sourcePath || "", "sleep");
+    });
+
     // 2. Standalone Macro & Nutrition Diary
+    // Alias of soma-macros. Existing macro-tracker blocks keep working and
+    // gain the dock; mountTracker still backs the Macros tab itself.
     this.registerMarkdownCodeBlockProcessor("macro-tracker", async (source, el, ctx) => {
-      await this.mountTracker(el, ctx?.sourcePath || "");
+      await this.mountApp(el, ctx?.sourcePath || "", "macros");
     });
 
     // 3. Weekly Macro & Nutrition Dashboard
@@ -1481,8 +125,11 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     // 9. Habit Tracker (merged in from the standalone Habit Radar plugin).
     // Kept as its own callout name per request, alongside being embedded
     // as the "Habits" tab inside the main soma-coach dashboard.
+    // Mounts through the profile system so the habit tracker gets its own
+    // dock (Habits + Settings). The habit UI itself is unchanged - the Habits
+    // tab still renders it via mountHabitTracker.
     this.registerMarkdownCodeBlockProcessor("habittracker", async (source, el, ctx) => {
-      await this.mountHabitTracker(el, source, ctx);
+      await this.mountApp(el, ctx?.sourcePath || "", "habits");
     });
 
     // Commands
@@ -1551,6 +198,47 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   untrackInterval(id) {
     clearInterval(id);
     if (this.activeIntervals) this.activeIntervals.delete(id);
+  }
+
+  // Reads soma-history.json through the schema migration. Any drift found in
+  // the stored file (empty template sessions, string/number mismatches,
+  // fields missing from older versions) is normalized once and written back,
+  // so every consumer downstream can trust the shape.
+  // The version marker lives on disk but never in the map handed to callers —
+  // every consumer walks Object.values(history) expecting sessions only, so a
+  // stray _schemaVersion entry would be counted as a phantom workout.
+  async readHistory() {
+    const raw = await this.readVaultJson(HISTORY_FILE_PATH, {});
+    const { history, changed, report } = migrateHistory(raw);
+    if (changed) {
+      if (report.dropped.length) {
+        console.log(`[SOMA] Migration dropped ${report.dropped.length} empty session(s):`, report.dropped);
+      }
+      await this.writeVaultJson(HISTORY_FILE_PATH, history);
+    }
+    const { _schemaVersion, ...sessions } = history;
+    return sessions;
+  }
+
+  // Single write path for history — re-stamps the schema version so a plain
+  // save never silently downgrades the file.
+  async writeHistory(sessions) {
+    const { _schemaVersion, ...clean } = sessions || {};
+    await this.writeVaultJson(HISTORY_FILE_PATH, { ...clean, _schemaVersion: SOMA_SCHEMA_VERSION });
+  }
+
+  // Nutrition reads go through the same self-healing cleanup as history.
+  async readNutrition(fallback = {}) {
+    const raw = await this.readVaultJson(NUTRITION_FILE_PATH, fallback);
+    const { nutrition, changed, report } = migrateNutrition(raw);
+    if (changed) {
+      if (report.dropped.length) console.log(`[SOMA] Nutrition migration dropped ${report.dropped.length} empty entry(s):`, report.dropped);
+      await this.writeVaultJson(NUTRITION_FILE_PATH, nutrition);
+    }
+    if (report.orphanedWithData.length) {
+      console.warn("[SOMA] Nutrition entries keyed by note title that still hold data (left untouched):", report.orphanedWithData);
+    }
+    return nutrition;
   }
 
   async readVaultJson(path, fallback = {}) {
@@ -1622,7 +310,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       if (session && session.exercises && (session.timestamp || 0) > latestDate) {
         const match = session.exercises.find(e => e.name && e.name.toLowerCase() === exerciseName.toLowerCase());
         if (match && match.sets && Array.isArray(match.sets)) {
-          const completed = match.sets.filter(s => s.done || (parseFloat(s.weight) >= 0 && s.reps));
+          const completed = match.sets.filter(s => s.type !== "warmup" && (s.done || (parseFloat(s.weight) >= 0 && s.reps)));
           if (completed.length > 0) {
             latestDate = session.timestamp || 0;
             topSet = completed.reduce((max, s) => (parseFloat(s.weight) || 0) > (parseFloat(max.weight) || 0) ? s : max, completed[0]);
@@ -1636,18 +324,19 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   // ==========================================================================
   // CODEBLOCK 1: SOMA MASTER SUITE (`soma-coach`)
   // ==========================================================================
-  async mountApp(containerEl, sourcePath) {
+  async mountApp(containerEl, sourcePath, profileId = "full") {
     containerEl.empty();
+    const profile = WIDGET_PROFILES[profileId] || WIDGET_PROFILES.full;
     const root = containerEl.createDiv({ cls: "soma-daily-root" });
-    const appEl = root.createDiv({ cls: "soma-app" });
+    const appEl = root.createDiv({ cls: "soma-app soma-profile-" + profile.id });
 
     const fileName = sourcePath ? sourcePath.split("/").pop().replace(/\.md$/, "") : "";
     const dateMatch = fileName.match(/\d{4}-\d{2}-\d{2}/);
     const noteDateKey = dateMatch ? dateMatch[0] : getLocalDateKey(new Date());
 
-    let history = await this.readVaultJson(HISTORY_FILE_PATH, {});
+    let history = await this.readHistory();
     let customExercises = await this.readVaultJson(CUSTOM_EX_FILE_PATH, []);
-    let nutritionDB = await this.readVaultJson(NUTRITION_FILE_PATH, { _settings: { creatineStashGrams: 300 } });
+    let nutritionDB = await this.readNutrition({ _settings: { creatineStashGrams: 300 } });
     this.ensureNutritionSettings(nutritionDB);
     let somaData = await this.readVaultJson(DATA_FILE_PATH, { STATIC_PARTS: { front: {}, back: {} }, FRONT_OUTLINE: "", BACK_OUTLINE: "" });
     let muscleRegistry = await this.readVaultJson(REGISTRY_FILE_PATH, {});
@@ -1661,8 +350,21 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       subStartDate: "2026-08-01",
       subDurationDays: 30,
       subEndDate: "2026-08-31",
-      scheduleOverrides: {}
+      scheduleOverrides: {},
+      theme: "dark",
+      accent: DEFAULT_ACCENT
     });
+
+    // A settings file written before theming existed has neither key.
+    if (!settings.theme) settings.theme = "dark";
+    if (!settings.accent) settings.accent = DEFAULT_ACCENT;
+    applySomaTheme(root, settings);
+
+    // Built-in presets merged with anything the user has edited or created.
+    // Recomputed on demand so an edit is live without a reload.
+    const routines = () => SomaIntelligenceEngine.mergeRoutines(
+      ROUTINE_PRESETS, settings.customRoutines || {}
+    );
 
     let exerciseDB = [...BASE_EXERCISE_DB, ...customExercises];
     const state = new SomaWorkoutState();
@@ -1671,6 +373,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     state.activeSplit = currentProj.split;
 
     let restTimerInterval = null;
+    // Session-scoped: skipping the check-in hides it until the note reopens.
+    let readinessDismissed = false;
     let restSecondsLeft = settings.restDefault;
     let restSecondsTotal = settings.restDefault;
     let workoutDurationInterval = null;
@@ -1712,10 +416,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     // ------------------------------------------------------------------
     const SUPERSET_GROUPS = [
       { id: "", label: "" },
-      { id: "A", label: "A", color: "#10b981" },
-      { id: "B", label: "B", color: "#38bdf8" },
+      { id: "A", label: "A", color: "var(--soma-accent)" },
+      { id: "B", label: "B", color: "var(--soma-info)" },
       { id: "C", label: "C", color: "#a855f7" },
-      { id: "D", label: "D", color: "#f59e0b" }
+      { id: "D", label: "D", color: "var(--soma-warn)" }
     ];
     const nextSupersetGroup = (current) => {
       const idx = SUPERSET_GROUPS.findIndex(g => g.id === (current || ""));
@@ -1744,9 +448,18 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       return raw;
     };
 
+    // Refuses to persist an abandoned shell. Finishing a session with no
+    // logged sets used to write an empty record keyed by the note — that is
+    // exactly how the legacy "daily template" rows got into the history file
+    // and skewed every rolling aggregate downstream.
     const saveWorkoutHistory = async (data) => {
+      if (sessionIsEmpty(data)) {
+        new Notice("Nothing logged — session not saved.");
+        return false;
+      }
       history[noteDateKey] = data;
-      await this.writeVaultJson(HISTORY_FILE_PATH, history);
+      await this.writeHistory(history);
+      return true;
     };
 
     const saveCustomExercise = async (ex) => {
@@ -1793,12 +506,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     const loadSplitIntoSession = (splitName) => {
       state.recordSnapshot();
       state.activeSplit = splitName;
-      const list = ROUTINE_PRESETS[splitName] || [];
+      const list = routines()[splitName] || [];
       state.sessionExercises = list.map(item => {
         const data = exerciseDB.find(e => e.name === item.name) || {};
         const isBW = !!data.isBW;
         const last = this.getLastPerformance(history, item.name);
-        const target = SomaIntelligenceEngine.computeOverloadRecommendation(last, isBW);
+        const target = buildAutoTarget({ ...data, name: item.name, isBW }, last);
 
         return {
           name: item.name,
@@ -1824,29 +537,27 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       renderTracker();
     };
 
+    // Only the panes this profile actually uses get built, and the dock is
+    // generated from the same list — so a workout widget has no macro tab to
+    // click, not merely a hidden one.
+    const activeTabs = ALL_DOCK_TABS.filter(t => profile.tabs.includes(t.pane));
+    const firstPane = activeTabs.length ? activeTabs[0].pane : "pane-settings";
+
+    const panesHtml = activeTabs
+      .map(t => `<div class="soma-view-pane${t.pane === firstPane ? " active" : ""}" id="${t.pane}"></div>`)
+      .join("\n      ");
+
+    const dockHtml = activeTabs
+      .map(t => `<button class="soma-dock-tab${t.pane === firstPane ? " active" : ""}" data-target="${t.pane}"><span class="dock-icon">${t.icon}</span><span>${t.label}</span></button>`)
+      .join("\n          ");
+
     appEl.innerHTML = `
-      <div class="soma-view-pane active" id="pane-workout"></div>
-      <div class="soma-view-pane" id="pane-macros"></div>
-      <div class="soma-view-pane" id="pane-habits"></div>
-      <div class="soma-view-pane" id="pane-heatmap"></div>
-      <div class="soma-view-pane" id="pane-calendar"></div>
-      <div class="soma-view-pane" id="pane-prs"></div>
-      <div class="soma-view-pane" id="pane-creatine"></div>
-      <div class="soma-view-pane" id="pane-recovery"></div>
-      <div class="soma-view-pane" id="pane-settings"></div>
+      ${panesHtml}
 
       <!-- FLOATING iOS LIQUID GLASS DOCK -->
       <div class="soma-glass-dock-wrap">
         <nav class="soma-glass-dock">
-          <button class="soma-dock-tab active" data-target="pane-workout"><span class="dock-icon">⚡</span><span>Workout</span></button>
-          <button class="soma-dock-tab" data-target="pane-macros"><span class="dock-icon">🍽️</span><span>Macros</span></button>
-          <button class="soma-dock-tab" data-target="pane-habits"><span class="dock-icon">🎯</span><span>Habits</span></button>
-          <button class="soma-dock-tab" data-target="pane-heatmap"><span class="dock-icon">🧬</span><span>Heatmap</span></button>
-          <button class="soma-dock-tab" data-target="pane-calendar"><span class="dock-icon">📅</span><span>Calendar</span></button>
-          <button class="soma-dock-tab" data-target="pane-prs"><span class="dock-icon">🏆</span><span>PRs</span></button>
-          <button class="soma-dock-tab" data-target="pane-creatine"><span class="dock-icon">💊</span><span>Creatine</span></button>
-          <button class="soma-dock-tab" data-target="pane-recovery"><span class="dock-icon">⚖️</span><span>CNS</span></button>
-          <button class="soma-dock-tab" data-target="pane-settings"><span class="dock-icon">⚙️</span><span>Settings</span></button>
+          ${dockHtml}
         </nav>
       </div>
 
@@ -1879,12 +590,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
       <div class="soma-plate-modal" id="plate-popover">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-weight:800; font-size:0.88rem; color:#f3f4f6;">🏋️ Barbell Loading Stack</span>
+          <span style="font-weight:800; font-size:0.88rem; color:var(--soma-text);">🏋️ Barbell Loading Stack</span>
           <button class="soma-btn-del" data-action="close-plate-modal">✕</button>
         </div>
-        <div id="plate-popover-text" style="font-size:0.78rem; color:#9ca3af; margin-top:4px;"></div>
+        <div id="plate-popover-text" style="font-size:0.78rem; color:var(--soma-text-dim); margin-top:4px;"></div>
         <div class="soma-plate-bar-visual" id="plate-bar-render"></div>
-        <div id="plate-breakdown-list" style="font-size:0.78rem; color:#e5e7eb; text-align:center;"></div>
+        <div id="plate-breakdown-list" style="font-size:0.78rem; color:var(--soma-text); text-align:center;"></div>
         <div id="plate-warmup-list" style="font-size:0.74rem; margin-top:8px;"></div>
       </div>
     `;
@@ -1895,18 +606,24 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     const paneHeatmap = appEl.querySelector("#pane-heatmap");
     const paneCalendar = appEl.querySelector("#pane-calendar");
     const panePrs = appEl.querySelector("#pane-prs");
+    const paneWeight = appEl.querySelector("#pane-weight");
+    const paneInsights = appEl.querySelector("#pane-insights");
+    const paneMeasurements = appEl.querySelector("#pane-measurements");
+    const paneSleep = appEl.querySelector("#pane-sleep");
     const paneCreatine = appEl.querySelector("#pane-creatine");
     const paneRecovery = appEl.querySelector("#pane-recovery");
     const paneSettings = appEl.querySelector("#pane-settings");
 
     let embeddedHabitController = null;
     const renderMacrosView = async () => {
+      if (!paneMacros) return;
       // Reuses the exact same renderer as the standalone `macro-tracker`
       // callout, just mounted into this dock's pane instead of its own
       // code block, so both stay in sync with one nutrition data file.
       await this.mountTracker(paneMacros, sourcePath);
     };
     const renderHabitsView = async () => {
+      if (!paneHabits) return;
       // Destroy the previous controller first so its focus-timer interval
       // (if one was left running) doesn't keep ticking in the background
       // after you've navigated away from this tab.
@@ -1926,6 +643,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       if (targetId === "pane-heatmap") renderHeatmapView();
       if (targetId === "pane-calendar") renderCalendarView();
       if (targetId === "pane-prs") renderPrsView();
+      if (targetId === "pane-weight") renderWeightView();
+      if (targetId === "pane-measurements") renderMeasurementsView();
+      if (targetId === "pane-sleep") renderSleepView();
+      if (targetId === "pane-insights") renderInsightsView();
       if (targetId === "pane-creatine") renderCreatineView();
       if (targetId === "pane-recovery") renderRecoveryView();
       if (targetId === "pane-settings") renderSettingsView();
@@ -1944,7 +665,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     });
 
     const initWorkoutView = () => {
-      const splitOptionsHtml = Object.keys(ROUTINE_PRESETS).map(r => `<option value="${r}">${r}</option>`).join("");
+      if (!paneWorkout) return;
+      const splitOptionsHtml = Object.keys(routines()).map(r => `<option value="${r}">${r}</option>`).join("");
       const currentProj = SomaIntelligenceEngine.getProgramProjectedDay(parseLocalDateKey(noteDateKey), settings.scheduleOverrides || {});
 
       paneWorkout.innerHTML = `
@@ -1962,7 +684,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         <div class="soma-topbar">
           <div style="display:flex; align-items:center; gap:8px;">
             <span class="soma-badge-pill">SOMA PRO</span>
-            <span style="font-weight:800; font-size:0.92rem; color:#f3f4f6;">Live Logger</span>
+            <span style="font-weight:800; font-size:0.92rem; color:var(--soma-text);">Live Logger</span>
           </div>
           <div style="display:flex; gap:6px; align-items:center;">
             <button class="soma-btn-icon" data-action="undo-action" title="Undo">↩</button>
@@ -1972,9 +694,9 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         </div>
 
         <div class="soma-stats-grid">
-          <div class="soma-stat-box"><div class="soma-stat-lbl">Est. Burn</div><div class="soma-stat-val" id="stat-cals" style="color:#f59e0b;">0 kcal</div></div>
-          <div class="soma-stat-box"><div class="soma-stat-lbl">Volume (${settings.unit})</div><div class="soma-stat-val" id="stat-vol" style="color:#e5e7eb;">0</div></div>
-          <div class="soma-stat-box"><div class="soma-stat-lbl">Sets Done</div><div class="soma-stat-val" id="stat-sets" style="color:#10b981;">0</div></div>
+          <div class="soma-stat-box"><div class="soma-stat-lbl">Est. Burn</div><div class="soma-stat-val" id="stat-cals" style="color:var(--soma-warn);">0 kcal</div></div>
+          <div class="soma-stat-box"><div class="soma-stat-lbl">Volume (${settings.unit})</div><div class="soma-stat-val" id="stat-vol" style="color:var(--soma-text);">0</div></div>
+          <div class="soma-stat-box"><div class="soma-stat-lbl">Sets Done</div><div class="soma-stat-val" id="stat-sets" style="color:var(--soma-accent-text);">0</div></div>
           <div class="soma-stat-box"><div class="soma-stat-lbl">Movements</div><div class="soma-stat-val" id="stat-ex">0</div></div>
         </div>
 
@@ -1988,14 +710,14 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               <div class="soma-timer-ring-txt" id="soma-timer-val">${settings.restDefault}s</div>
             </div>
             <div>
-              <div style="font-weight:800; font-size:0.85rem; color:#f3f4f6;">Rest Countdown</div>
-              <div style="font-size:0.7rem; color:#9ca3af;">Auto-triggers on set check</div>
+              <div style="font-weight:800; font-size:0.85rem; color:var(--soma-text);">Rest Countdown</div>
+              <div style="font-size:0.7rem; color:var(--soma-text-dim);">Auto-triggers on set check</div>
             </div>
           </div>
           <div style="display:flex; gap:6px;">
             <button class="soma-timer-btn" data-action="quick-rest" data-seconds="60">+60s</button>
             <button class="soma-timer-btn" data-action="quick-rest" data-seconds="90">+90s</button>
-            <button class="soma-timer-btn" data-action="reset-rest" style="background:#ef4444; border-color:#ef4444;">Reset</button>
+            <button class="soma-timer-btn" data-action="reset-rest" style="background:var(--soma-danger); border-color:var(--soma-danger);">Reset</button>
           </div>
         </div>
 
@@ -2007,7 +729,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         </div>
 
         <div class="soma-card" id="routine-selector" style="display:none; margin-bottom:14px; border-color:rgba(255,255,255,0.2);">
-          <div style="font-weight:800; font-size:0.92rem; margin-bottom:10px; color:#fff;">Select S-Tier Routine Split</div>
+          <div style="font-weight:800; font-size:0.92rem; margin-bottom:10px; color:var(--soma-text);">Select S-Tier Routine Split</div>
           <select class="soma-input" id="split-select" style="text-align:left; height:40px; margin-bottom:10px;">${splitOptionsHtml}</select>
           <div style="display:flex; justify-content:flex-end; gap:8px;">
             <button class="soma-btn" data-action="cancel-split-drawer">Cancel</button>
@@ -2016,14 +738,15 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         </div>
 
         <div class="soma-card" id="add-selector" style="display:none; margin-bottom:14px; border-color:rgba(255,255,255,0.2);">
-          <div style="font-weight:800; font-size:0.92rem; margin-bottom:8px; color:#fff;">Search & Add Movement</div>
+          <div style="font-weight:800; font-size:0.92rem; margin-bottom:8px; color:var(--soma-text);">Search & Add Movement</div>
           <input type="text" class="soma-input" id="search-box" style="text-align:left; padding:8px 12px; margin-bottom:8px;" placeholder="Search by name, muscle, target..." />
-          <div id="search-list" style="max-height:190px; overflow-y:auto; border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:#111217; margin-bottom:10px;"></div>
+          <div id="search-list" style="max-height:190px; overflow-y:auto; border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:var(--soma-surface); margin-bottom:10px;"></div>
           <div style="display:flex; justify-content:flex-end;">
             <button class="soma-btn" data-action="close-add-drawer">Close</button>
           </div>
         </div>
 
+        <div id="readiness-host"></div>
         <div id="cards-container"></div>
       `;
 
@@ -2034,13 +757,13 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         const q = (query || "").toLowerCase();
         const filtered = exerciseDB.filter(ex => ex.name.toLowerCase().includes(q) || ex.subTarget.toLowerCase().includes(q) || ex.muscle.toLowerCase().includes(q));
         if (filtered.length === 0) {
-          searchList.innerHTML = '<div style="padding:10px; color:#9ca3af; font-size:0.8rem; text-align:center;">No matching movements found.</div>';
+          searchList.innerHTML = '<div style="padding:10px; color:var(--soma-text-dim); font-size:0.8rem; text-align:center;">No matching movements found.</div>';
           return;
         }
         searchList.innerHTML = filtered.map(ex => `
           <div class="soma-search-item" data-action="select-search-ex" data-name="${ex.name}">
-            <div style="font-weight:700; color:#ffffff; font-size:0.85rem;">${ex.name}</div>
-            <div style="font-size:0.72rem; color:#9ca3af; display:flex; gap:6px; margin-top:2px;">
+            <div style="font-weight:700; color:var(--soma-text); font-size:0.85rem;">${ex.name}</div>
+            <div style="font-size:0.72rem; color:var(--soma-text-dim); display:flex; gap:6px; margin-top:2px;">
               <span>${ex.subTarget}</span> • <span>${ex.tier}</span>
             </div>
           </div>
@@ -2067,7 +790,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       const data = exerciseDB.find(e => e.name === name) || { name, muscle: "Custom", targetKeys: [] };
       const isBW = !!data.isBW;
       const last = this.getLastPerformance(history, data.name);
-      const target = SomaIntelligenceEngine.computeOverloadRecommendation(last, isBW);
+      const target = buildAutoTarget({ ...data, isBW }, last);
 
       state.sessionExercises.push({
         name: data.name,
@@ -2093,10 +816,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     };
 
     const updateStats = () => {
+      if (!paneWorkout) return;
       let totalVol = 0, totalSets = 0, sumIntensity = 0;
       for (const ex of state.sessionExercises) {
         for (const s of ex.sets) {
-          if (s.done) {
+          // Live counters track working sets only, matching what gets saved.
+          if (s.done && s.type !== "warmup") {
             totalSets++;
             const defaultW = ex.isBW ? 0 : 80;
             const w = parseFloat(s.weight) >= 0 ? parseFloat(s.weight) : defaultW;
@@ -2133,7 +858,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       textEl.textContent = `Bar: ${barW}${settings.unit} • Per Side: ${Math.max(0, ((w - barW) / 2)).toFixed(1)} ${settings.unit}`;
       const plates = SomaIntelligenceEngine.calculatePlateStack(w, barW, settings.unit);
 
-      let discsHtml = '<div style="width:14px; height:10px; background:#9ca3af; border-radius:2px;"></div>';
+      let discsHtml = '<div style="width:14px; height:10px; background:var(--soma-text-dim); border-radius:2px;"></div>';
       for (const p of plates) {
         discsHtml += `<div style="background:${p.color}; width:8px; height:34px; border-radius:3px;"></div>`;
       }
@@ -2146,8 +871,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           const ramp = SomaIntelligenceEngine.calculateWarmupRamp(w, barW, settings.unit);
           warmupEl.innerHTML = ramp.map(r => `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-top:1px dashed rgba(255,255,255,0.08);">
-              <span style="color:#9ca3af;">${r.pct}% Warm-up</span>
-              <span style="color:#e5e7eb; font-weight:700;">${r.weight}${settings.unit} ${r.plates.length > 0 ? `(${r.plates.map(p => p.weight).join('+')} /side)` : '(bar only)'}</span>
+              <span style="color:var(--soma-text-dim);">${r.pct}% Warm-up</span>
+              <span style="color:var(--soma-text); font-weight:700;">${r.weight}${settings.unit} ${r.plates.length > 0 ? `(${r.plates.map(p => p.weight).join('+')} /side)` : '(bar only)'}</span>
             </div>
           `).join("");
         } else {
@@ -2158,7 +883,53 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       popover.style.display = "block";
     };
 
+    // Optional pre-workout check-in. Skippable by design: an unanswered
+    // check-in simply leaves autoregulation on muscle readiness alone.
+    const renderReadinessCard = () => {
+      const host = paneWorkout && paneWorkout.querySelector("#readiness-host");
+      if (!host) return;
+      const day = nutritionDB[noteDateKey] || {};
+      const sleep = day.sleep || {};
+      const ck = day.readiness || {};
+      const answered = ck.soreness !== undefined && ck.stress !== undefined;
+
+      if (readinessDismissed || answered) {
+        const score = todaySubjective();
+        host.innerHTML = score === null ? "" : `
+          <div class="soma-readiness-mini">
+            <span>🧠 Readiness <b>${score}%</b></span>
+            <button class="soma-btn" data-action="dismiss-readiness" style="padding:3px 9px; font-size:0.66rem;">Redo</button>
+          </div>`;
+        if (answered && readinessDismissed) readinessDismissed = false;
+        return;
+      }
+
+      const slider = (id, label, icon, val) => `
+        <div class="soma-ck-row">
+          <span class="soma-ck-label">${icon} ${label}</span>
+          <input type="range" min="1" max="5" step="1" value="${val}" id="${id}" class="soma-ck-slider" />
+        </div>`;
+
+      host.innerHTML = `
+        <div class="soma-card soma-readiness-card">
+          <div class="soma-card-title"><span>🧠 Before You Start</span><span style="font-size:0.62rem; color:var(--soma-text-faint); font-weight:700;">OPTIONAL</span></div>
+          <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-bottom:8px;">
+            ${sleep.hours
+              ? `😴 <b>${sleep.hours}h</b> sleep logged this morning — using that.`
+              : "No sleep logged today. Log it in the Sleep widget and it feeds in automatically."}
+          </div>
+          ${slider("ck-soreness", "Soreness", "💪", ck.soreness || 3)}
+          ${slider("ck-stress", "Stress", "🧠", ck.stress || 3)}
+          <div class="soma-ck-legend"><span>none</span><span>severe</span></div>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button class="soma-btn" data-action="dismiss-readiness" style="flex:0.6;">Skip</button>
+            <button class="soma-btn soma-btn-accent" data-action="save-readiness" style="flex:1.4;">Save</button>
+          </div>
+        </div>`;
+    };
+
     const renderTracker = () => {
+      if (!paneWorkout) return;
       const cardsContainer = paneWorkout.querySelector("#cards-container");
       if (!cardsContainer) return;
       cardsContainer.innerHTML = "";
@@ -2172,15 +943,45 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           card.style.borderLeft = `4px solid ${groupInfo.color}`;
         }
 
+        // Tier colour tracks what the autoregulator decided, not just the
+        // raw progression level — a backed-off target should not read as a
+        // green light.
+        const tierClass = (() => {
+          const t = (ex.overloadTarget && ex.overloadTarget.diffTier) || "";
+          if (t === "Under-recovered" || t === "Deload") return "soma-tag-red";
+          if (t === "Stalled" || t.startsWith("Hold")) return "soma-tag-amber";
+          if (t.includes("Lvl 1")) return "soma-tag-emerald";
+          return "soma-tag-gray";
+        })();
+
         const targetInfo = ex.overloadTarget ? `
           <div class="soma-target-intel">
             <div>
               <span>🎯 <b>Smart Target:</b> ${ex.isBW && ex.overloadTarget.weight === 0 ? 'Bodyweight' : ex.overloadTarget.weight + ' ' + settings.unit} × ${ex.overloadTarget.reps} reps</span>
-              <div style="font-size:0.68rem; color:#9ca3af; margin-top:2px;">${ex.overloadTarget.note}</div>
+              <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-top:2px;">${ex.overloadTarget.note}</div>
+              ${ex.overloadTarget.autoNote ? `<div class="soma-auto-note">🧠 ${ex.overloadTarget.autoNote}</div>` : ''}
             </div>
-            <span class="soma-tag ${ex.overloadTarget.diffTier.includes('Lvl 1') ? 'soma-tag-emerald' : 'soma-tag-gray'}">${ex.overloadTarget.diffTier}</span>
+            <span class="soma-tag ${tierClass}">${ex.overloadTarget.diffTier}</span>
           </div>
         ` : '';
+
+        // When the autoregulator has backed a lift off, name what to do
+        // instead rather than leaving "train something else" hanging.
+        let swapHtml = "";
+        if (ex.overloadTarget && ex.overloadTarget.diffTier === "Under-recovered") {
+          const alts = SomaIntelligenceEngine.suggestAlternatives(ex, exerciseDB, muscleReadinessMap());
+          if (alts.length) {
+            swapHtml = `
+              <div class="soma-swap-box">
+                <div class="soma-swap-head">🔄 Fresher options for this muscle</div>
+                ${alts.map(a => `
+                  <button class="soma-swap-opt" data-action="swap-exercise" data-ex="${exIdx}" data-name="${a.name}">
+                    <span class="soma-swap-name">${a.name}</span>
+                    <span class="soma-swap-meta">${a.readiness}% · ${a.note}</span>
+                  </button>`).join("")}
+              </div>`;
+          }
+        }
 
         const tagsHtml = `
           <div class="soma-tag-wrap">
@@ -2200,7 +1001,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               ${barPresets.map(p => `<option value="${p.id}" ${currentPreset ? (currentPreset.id === p.id ? 'selected' : '') : (p.id === 'custom' ? 'selected' : '')}>${p.label}</option>`).join("")}
             </select>
             ${!currentPreset ? `<input type="number" class="soma-input set-bar-custom" data-ex="${exIdx}" value="${ex.barWeight}" placeholder="Bar kg" style="width:64px; font-size:0.72rem; padding:4px 6px;" />` : ''}
-            <span style="font-size:0.68rem; color:#9ca3af;">Type <b>added</b> weight below (e.g. 2×10${settings.unit} → 20${settings.unit})</span>
+            <span style="font-size:0.68rem; color:var(--soma-text-dim);">Type <b>added</b> weight below (e.g. 2×10${settings.unit} → 20${settings.unit})</span>
           </div>
         ` : '';
 
@@ -2218,12 +1019,24 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         ex.sets.forEach((s, sIdx) => {
           const placeholderKg = (ex.isBW || ex.usesBar) ? "0" : "80";
           const totalW = getTotalWeight(ex, s);
-          const totalHint = ex.usesBar && totalW > 0 ? `<div style="font-size:0.62rem; color:#71717a; text-align:center; margin-top:1px;">= ${totalW}${settings.unit}</div>` : '';
+          const totalHint = ex.usesBar && totalW > 0 ? `<div style="font-size:0.62rem; color:var(--soma-text-faint); text-align:center; margin-top:1px;">= ${totalW}${settings.unit}</div>` : '';
           const isDropSet = s.type === "dropset";
-          const setNumLabel = isDropSet ? "↳D" : String(sIdx + 1);
+          const isWarmup  = s.type === "warmup";
+          // Warm-ups and drop sets are not working sets, so they must not
+          // consume a number - otherwise "Set 3" means different things
+          // depending on how you warmed up.
+          const workingNo = ex.sets
+            .slice(0, sIdx + 1)
+            .filter(x => x.type !== "warmup" && x.type !== "dropset").length;
+          const setNumLabel = isWarmup ? "W" : isDropSet ? "↳D" : String(workingNo);
+          const typeTitle = isWarmup
+            ? "Warm-up — not counted in volume, PRs or recovery. Tap for normal."
+            : isDropSet
+              ? "Drop set — tap for warm-up."
+              : "Working set — tap to mark as a drop set.";
           rowsHtml += `
-            <div class="soma-set-row ${s.done ? 'row-done' : ''} ${isDropSet ? 'row-dropset' : ''}">
-              <button class="soma-set-num-btn ${isDropSet ? 'is-dropset' : ''}" data-action="toggle-set-type" data-ex="${exIdx}" data-set="${sIdx}" title="${isDropSet ? 'Drop set — tap to make it a normal set' : 'Tap to mark as a drop set'}">${setNumLabel}</button>
+            <div class="soma-set-row ${s.done ? 'row-done' : ''} ${isDropSet ? 'row-dropset' : ''} ${isWarmup ? 'row-warmup' : ''}">
+              <button class="soma-set-num-btn ${isDropSet ? 'is-dropset' : ''} ${isWarmup ? 'is-warmup' : ''}" data-action="toggle-set-type" data-ex="${exIdx}" data-set="${sIdx}" title="${typeTitle}">${setNumLabel}</button>
               <div>
                 <input type="number" class="soma-input set-weight" data-ex="${exIdx}" data-set="${sIdx}" value="${s.weight}" placeholder="${placeholderKg}" />
                 ${totalHint}
@@ -2253,6 +1066,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           ${tagsHtml}
           ${barSelectHtml}
           ${targetInfo}
+          ${swapHtml}
           ${rowsHtml}
           <div style="display:flex; gap:8px;">
             <button class="soma-btn-addset" data-action="add-set" data-ex="${exIdx}" style="flex:1;">+ Add Set</button>
@@ -2261,10 +1075,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         `;
         cardsContainer.appendChild(card);
       });
+      renderReadinessCard();
       updateStats();
     };
 
     const renderFinishedScreen = (data) => {
+      if (!paneWorkout) return;
       if (workoutDurationInterval) this.untrackInterval(workoutDurationInterval);
       if (restTimerInterval) this.untrackInterval(restTimerInterval);
 
@@ -2290,8 +1106,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
           setsListHtml += `
             <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.06); font-size:0.8rem;">
-              <span>${s.type === "dropset" ? "↳ Drop" : `Set ${idx + 1}`}: <b>${weightLabel}</b> × <b>${displayReps} reps</b></span>
-              <span style="color:${s.done ? '#10b981' : '#9ca3af'}; font-weight:700;">Lvl ${failLevel} ${s.done ? '✅' : '⏳'}</span>
+              <span>${s.type === "dropset" ? "↳ Drop" : s.type === "warmup" ? "W Warm-up" : `Set ${idx + 1}`}: <b>${weightLabel}</b> × <b>${displayReps} reps</b></span>
+              <span style="color:${s.done ? 'var(--soma-accent-text)' : 'var(--soma-text-dim)'}; font-weight:700;">Lvl ${failLevel} ${s.done ? '✅' : '⏳'}</span>
             </div>
           `;
         });
@@ -2300,7 +1116,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         cardsHtml += `
           <div class="soma-card" ${finishedGroupInfo.id ? `style="border-left:4px solid ${finishedGroupInfo.color};"` : ''}>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <span style="font-weight:800; font-size:0.95rem; color:#fff;">${ex.name}</span>
+              <span style="font-weight:800; font-size:0.95rem; color:var(--soma-text);">${ex.name}</span>
               <span style="display:flex; gap:6px;">
                 ${finishedGroupInfo.id ? `<span class="soma-tag" style="background:${finishedGroupInfo.color}22; color:${finishedGroupInfo.color}; border:1px solid ${finishedGroupInfo.color}55;">🔗 ${finishedGroupInfo.label}</span>` : ''}
                 <span class="soma-tag soma-tag-gray">${ex.subTarget || ex.muscle}</span>
@@ -2313,20 +1129,25 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
       paneWorkout.innerHTML = `
         <div style="text-align:center; padding:10px 0 16px 0;">
-          <span class="soma-tag-badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">Session Completed</span>
-          <h2 style="font-size:1.35rem; font-weight:800; color:#fff; margin:6px 0 0 0;">Workout Summary</h2>
-          <div style="font-size:0.78rem; color:#9ca3af; margin-top:4px;">Logged & synced to vault note properties.</div>
+          <span class="soma-tag-badge" style="background:rgba(16,185,129,0.15); color:var(--soma-accent-text); border:1px solid rgba(16,185,129,0.3);">Session Completed</span>
+          <h2 style="font-size:1.35rem; font-weight:800; color:var(--soma-text); margin:6px 0 0 0;">Workout Summary</h2>
+          <div style="font-size:0.78rem; color:var(--soma-text-dim); margin-top:4px;">Logged & synced to vault note properties.</div>
         </div>
+        ${(data.blankDoneSets > 0 ? `
+          <div class="soma-blank-warn">
+            ⚠ ${data.blankDoneSets} set${data.blankDoneSets === 1 ? " was" : "s were"} ticked done with no weight or reps.
+            They count as zero — the totals above only include sets you actually logged.
+          </div>` : "")}
         <div class="soma-stats-grid">
-          <div class="soma-stat-box"><div class="soma-stat-lbl">Duration</div><div class="soma-stat-val" style="color:#10b981;">${data.durationFormatted}</div></div>
-          <div class="soma-stat-box"><div class="soma-stat-lbl">Burn Target</div><div class="soma-stat-val" style="color:#f59e0b;">${data.caloriesBurned} kcal</div></div>
+          <div class="soma-stat-box"><div class="soma-stat-lbl">Duration</div><div class="soma-stat-val" style="color:var(--soma-accent-text);">${data.durationFormatted}</div></div>
+          <div class="soma-stat-box"><div class="soma-stat-lbl">Burn Target</div><div class="soma-stat-val" style="color:var(--soma-warn);">${data.caloriesBurned} kcal</div></div>
           <div class="soma-stat-box"><div class="soma-stat-lbl">Volume (Added)</div><div class="soma-stat-val">${(data.totalVol || 0).toLocaleString()} ${settings.unit}</div></div>
           <div class="soma-stat-box"><div class="soma-stat-lbl">Sets Done</div><div class="soma-stat-val">${data.totalSets}</div></div>
         </div>
         <div>${cardsHtml}</div>
         <div style="display:flex; gap:10px; margin-top:16px;">
-          <button class="soma-btn" data-action="edit-session" style="flex:1.2; background:#22252f; border-color:rgba(255,255,255,0.18);">✏️ Edit Session</button>
-          <button class="soma-btn" data-action="reset-session" style="flex:0.8; background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#fca5a5;">🗑️ Reset</button>
+          <button class="soma-btn" data-action="edit-session" style="flex:1.2; background:var(--soma-surface-2); border-color:rgba(255,255,255,0.18);">✏️ Edit Session</button>
+          <button class="soma-btn" data-action="reset-session" style="flex:0.8; background:rgba(239,68,68,0.15); border:1px solid var(--soma-danger); color:#fca5a5;">🗑️ Reset</button>
         </div>
       `;
     };
@@ -2338,7 +1159,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       fresh:    { base: "#22c55e", light: "#a7f3c8", dark: "#0f2e1c" },
       low:      { base: "#eab308", light: "#fde68a", dark: "#3f2f08" },
       moderate: { base: "#f97316", light: "#fdc493", dark: "#3f200a" },
-      high:     { base: "#ef4444", light: "#fca5a5", dark: "#3f1212" }
+      high:     { base: "var(--soma-danger)", light: "#fca5a5", dark: "#3f1212" }
     };
 
     function getHeatTier(recovery) {
@@ -2434,7 +1255,67 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       }
     };
 
+    // Readiness of the limiting muscle an exercise trains. The Recovery HUD
+    // already models this per muscle; this is the bridge that lets the
+    // workout builder consult it instead of only drawing it.
+    const readinessForExercise = (ex) => {
+      const keys = Array.isArray(ex && ex.targetKeys) ? ex.targetKeys : [];
+      if (!keys.length) return null;
+      computeBiologicalReadiness();
+      let worst = null;
+      for (const k of keys) {
+        const entry = muscleRegistry[k];
+        if (!entry || typeof entry.recovery !== "number") continue;
+        if (worst === null || entry.recovery < worst) worst = entry.recovery;
+      }
+      return worst;
+    };
+
+    // Assembles the full context the autoregulation layer needs for one
+    // exercise: last performance, muscle readiness, program phase, trend.
+    // Sleep comes from the sleep widget; soreness and stress from the
+    // pre-workout check-in. Any of them may be absent.
+    const todaySubjective = () => {
+      const day = nutritionDB[noteDateKey] || {};
+      const sleep = day.sleep || {};
+      const ck = day.readiness || {};
+      return SomaIntelligenceEngine.computeSubjectiveReadiness({
+        sleepHours: sleep.hours ?? null,
+        sleepQuality: sleep.quality ?? null,
+        soreness: ck.soreness ?? null,
+        stress: ck.stress ?? null
+      });
+    };
+
+    // Current readiness for every muscle, used to rank substitutions.
+    const muscleReadinessMap = () => {
+      computeBiologicalReadiness();
+      const out = {};
+      for (const k in muscleRegistry) {
+        const v = muscleRegistry[k] && muscleRegistry[k].recovery;
+        if (typeof v === "number") out[k] = v;
+      }
+      return out;
+    };
+
+    const buildAutoTarget = (exMeta, lastSet) => {
+      const proj = SomaIntelligenceEngine.getProgramProjectedDay(
+        parseLocalDateKey(noteDateKey), settings.scheduleOverrides || {}
+      );
+      return SomaIntelligenceEngine.computeAutoregulatedTarget(lastSet, {
+        isBW: !!exMeta.isBW,
+        // How the lifter actually feels can only pull the muscle figure down.
+        readiness: SomaIntelligenceEngine.blendReadiness(
+          readinessForExercise(exMeta), todaySubjective()
+        ),
+        isDeload: !!proj.isDeload,
+        unit: settings.unit,
+        trend: SomaIntelligenceEngine.computeVolumeTrend(history, exMeta.name)
+      });
+    };
+
     const renderHeatmapView = () => {
+      if (!paneHeatmap) return;
       computeBiologicalReadiness();
 
       paneHeatmap.innerHTML = `
@@ -2454,14 +1335,14 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             <div class="bm3-legend-row"><div class="bm3-dot" style="background:#22c55e;"></div><div class="bm3-legend-text">90 - 100%<span class="sub">(Fully Primed)</span></div></div>
             <div class="bm3-legend-row"><div class="bm3-dot" style="background:#eab308;"></div><div class="bm3-legend-text">70 - 89%<span class="sub">(Supercompensated)</span></div></div>
             <div class="bm3-legend-row"><div class="bm3-dot" style="background:#f97316;"></div><div class="bm3-legend-text">40 - 69%<span class="sub">(Repair Phase)</span></div></div>
-            <div class="bm3-legend-row"><div class="bm3-dot" style="background:#ef4444;"></div><div class="bm3-legend-text">0 - 39%<span class="sub">(Acute Fatigue)</span></div></div>
+            <div class="bm3-legend-row"><div class="bm3-dot" style="background:var(--soma-danger);"></div><div class="bm3-legend-text">0 - 39%<span class="sub">(Acute Fatigue)</span></div></div>
           </div>
 
           <div class="bm3-viewport" id="soma-hm-viewport"></div>
 
           <div class="bm3-panel">
             <div class="bm3-panel-title">TRAINING INTEL</div>
-            <div style="font-size:0.75rem; color:#94a3b8; line-height:1.4;">Tap any anatomical muscle node to inspect remaining latency & load tolerance.</div>
+            <div style="font-size:0.75rem; color:var(--soma-text-dim); line-height:1.4;">Tap any anatomical muscle node to inspect remaining latency & load tolerance.</div>
           </div>
         </div>
 
@@ -2501,7 +1382,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           <pattern id="${pid}" width="5" height="5" patternTransform="rotate(58)" patternUnits="userSpaceOnUse">
             <rect width="5" height="5" fill="transparent" />
             <line x1="0" y1="0" x2="0" y2="5" stroke="#000000" stroke-width="0.8" stroke-opacity="0.75" />
-            <line x1="2.5" y1="0" x2="2.5" y2="5" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.38" />
+            <line x1="2.5" y1="0" x2="2.5" y2="5" stroke="var(--soma-text)" stroke-width="0.5" stroke-opacity="0.38" />
           </pattern>
         `;
       }
@@ -2592,7 +1473,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       if (descEl) {
         const baseDesc = model.desc || "Muscle tissue undergoing metabolic recovery and protein synthesis.";
         if (model.effortNote && model.recovery < 90) {
-          descEl.innerHTML = `${baseDesc}<br><span style="color:#9ca3af; font-size:0.72rem;">Last session: <b>${model.effortNote}</b> effort • Adjusted recovery window: <b>${model.adjustedHours}h</b> (base ${model.baseHours}h)</span>`;
+          descEl.innerHTML = `${baseDesc}<br><span style="color:var(--soma-text-dim); font-size:0.72rem;">Last session: <b>${model.effortNote}</b> effort • Adjusted recovery window: <b>${model.adjustedHours}h</b> (base ${model.baseHours}h)</span>`;
         } else {
           descEl.textContent = baseDesc;
         }
@@ -2629,8 +1510,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
       const html = `
         <g class="bm3-annot-group">
-          <line x1="${cx}" y1="${cy}" x2="${targetX}" y2="${cy}" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" />
-          <circle class="bm3-annot-dot" cx="${cx}" cy="${cy}" r="9" fill="#38bdf8" stroke="#0b1220" stroke-width="3" />
+          <line x1="${cx}" y1="${cy}" x2="${targetX}" y2="${cy}" stroke="var(--soma-info)" stroke-width="4" stroke-linecap="round" />
+          <circle class="bm3-annot-dot" cx="${cx}" cy="${cy}" r="9" fill="var(--soma-info)" stroke="#0b1220" stroke-width="3" />
           <rect class="bm3-annot-backdrop" x="${backdropX}" y="${cy - 18}" width="${backdropWidth}" height="36" />
           <text x="${textX}" y="${cy}" fill="#f8fafc" font-size="29" font-weight="800"
                 text-anchor="${textAnchor}" dominant-baseline="middle"
@@ -2644,6 +1525,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     // VIEW 3: 6-MONTH PERIODIZATION CALENDAR & SUBSCRIPTION ENGINE
     // ========================================================================
     const renderCalendarView = () => {
+      if (!paneCalendar) return;
       const year = calViewDate.getFullYear();
       const month = calViewDate.getMonth();
       const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -2682,8 +1564,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           <div class="soma-cal-cell ${isToday ? 'soma-cal-today' : ''} ${session ? 'soma-cal-completed' : ''} ${isSubExpiry ? 'soma-cal-expiry' : ''}" data-action="inspect-cal-day" data-date="${dateKey}">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span class="soma-cal-num">${d}</span>
-              ${session ? '<span style="font-size:0.65rem; color:#10b981; font-weight:800;">✓</span>' : ''}
-              ${isSubExpiry ? '<span style="font-size:0.62rem; color:#ef4444; font-weight:900;">⚠️</span>' : ''}
+              ${session ? '<span style="font-size:0.65rem; color:var(--soma-accent-text); font-weight:800;">✓</span>' : ''}
+              ${isSubExpiry ? '<span style="font-size:0.62rem; color:var(--soma-danger); font-weight:900;">⚠️</span>' : ''}
             </div>
             <div class="soma-cal-badge ${tagCls}">${isSubExpiry ? 'EXPIRY' : tag}</div>
           </div>
@@ -2695,11 +1577,11 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       const subDaysRemaining = Math.max(0, Math.ceil((subEndDateObj.getTime() - todayDateObj.getTime()) / (1000 * 60 * 60 * 24)));
 
       paneCalendar.innerHTML = `
-        <div class="soma-card" style="margin-bottom:12px; border-color:${subDaysRemaining <= 5 ? '#ef4444' : 'rgba(255,255,255,0.1)'};">
+        <div class="soma-card" style="margin-bottom:12px; border-color:${subDaysRemaining <= 5 ? 'var(--soma-danger)' : 'rgba(255,255,255,0.1)'};">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
-              <div style="font-size:0.68rem; font-weight:800; color:${subDaysRemaining <= 5 ? '#ef4444' : '#38bdf8'}; text-transform:uppercase;">💳 Gym Membership Access</div>
-              <div style="font-size:0.95rem; font-weight:900; color:#fff; margin-top:2px;">
+              <div style="font-size:0.68rem; font-weight:800; color:${subDaysRemaining <= 5 ? 'var(--soma-danger)' : 'var(--soma-info)'}; text-transform:uppercase;">💳 Gym Membership Access</div>
+              <div style="font-size:0.95rem; font-weight:900; color:var(--soma-text); margin-top:2px;">
                 ${subDaysRemaining > 0 ? `${subDaysRemaining} Days Remaining (Ends ${settings.subEndDate})` : `⚠️ Subscription Expired on ${settings.subEndDate}`}
               </div>
             </div>
@@ -2707,7 +1589,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           </div>
           
           <div id="sub-edit-drawer" style="display:none; margin-top:10px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
-            <div style="font-size:0.75rem; font-weight:800; color:#cbd5e1; margin-bottom:6px;">Set Subscription Period:</div>
+            <div style="font-size:0.75rem; font-weight:800; color:var(--soma-text-dim); margin-bottom:6px;">Set Subscription Period:</div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
               <button class="soma-btn" data-action="set-sub-days" data-days="15">15 Days</button>
               <button class="soma-btn" data-action="set-sub-days" data-days="30">30 Days</button>
@@ -2715,7 +1597,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               <button class="soma-btn" data-action="set-sub-days" data-days="90">90 Days</button>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
-              <span style="font-size:0.72rem; color:#9ca3af;">Or Direct End Date:</span>
+              <span style="font-size:0.72rem; color:var(--soma-text-dim);">Or Direct End Date:</span>
               <input type="date" class="soma-input" id="input-sub-end-date" value="${settings.subEndDate}" style="height:32px; width:150px; font-size:0.75rem;" />
               <button class="soma-btn soma-btn-accent" data-action="save-sub-end-date" style="padding:6px 12px; font-size:0.72rem;">Save</button>
             </div>
@@ -2724,20 +1606,20 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
         <div class="soma-card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;">
-            <div style="font-size:1.05rem; font-weight:800; color:#ffffff;">📅 Periodization Timeline</div>
+            <div style="font-size:1.05rem; font-weight:800; color:var(--soma-text);">📅 Periodization Timeline</div>
             <span class="soma-tag soma-tag-emerald">${sampleProg.phase}</span>
           </div>
 
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <button class="soma-btn" data-action="cal-prev" style="padding:6px 12px; font-size:0.75rem;">◀ Prev</button>
-            <div style="font-size:0.95rem; font-weight:800; color:#fff;">${monthNames[month]} ${year}</div>
+            <div style="font-size:0.95rem; font-weight:800; color:var(--soma-text);">${monthNames[month]} ${year}</div>
             <button class="soma-btn" data-action="cal-next" style="padding:6px 12px; font-size:0.75rem;">Next ▶</button>
           </div>
 
           <div class="soma-cal-summary-strip">
-            <div>Logged: <b style="color:#10b981;">${mLoggedCount} Sessions</b></div>
-            <div>Vol: <b style="color:#f3f4f6;">${mTotalVol.toLocaleString()} ${settings.unit}</b></div>
-            <div>Rest: <b style="color:#9ca3af;">${mRestCount} Days</b></div>
+            <div>Logged: <b style="color:var(--soma-accent-text);">${mLoggedCount} Sessions</b></div>
+            <div>Vol: <b style="color:var(--soma-text);">${mTotalVol.toLocaleString()} ${settings.unit}</b></div>
+            <div>Rest: <b style="color:var(--soma-text-dim);">${mRestCount} Days</b></div>
           </div>
 
           <div class="soma-cal-grid">${gridHtml}</div>
@@ -2749,7 +1631,15 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     // ========================================================================
     // VIEW 4: PR DIRECTORY WITH MUSCLE FILTER
     // ========================================================================
-    const renderPrsView = () => {
+    // Renders into any container. Defaults to its own pane for the all-in-one
+    // widget; the workout widget passes a sub-container of the Insights tab.
+    // The last container is remembered so argument-less re-renders after an
+    // action redraw in place rather than silently doing nothing.
+    let pendingSleepQuality = null;
+    let lastPrsTarget = null;
+    const renderPrsView = (target = lastPrsTarget || panePrs) => {
+      if (!target) return;
+      lastPrsTarget = target;
       const prs = [];
       for (const ex of exerciseDB) {
         let maxWeight = 0, maxRepsAtWeight = 0, max1RM = 0, best1RMDate = "", lastSessionDate = "";
@@ -2791,24 +1681,24 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         <div class="soma-pr-card">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
-              <div style="font-weight:800; font-size:0.95rem; color:#fff;">${pr.name}</div>
-              <div style="font-size:0.72rem; color:#9ca3af;">${pr.muscle} • Last trained: ${pr.lastSessionDate}</div>
+              <div style="font-weight:800; font-size:0.95rem; color:var(--soma-text);">${pr.name}</div>
+              <div style="font-size:0.72rem; color:var(--soma-text-dim);">${pr.muscle} • Last trained: ${pr.lastSessionDate}</div>
             </div>
             <div style="text-align:right;">
-              <div style="font-size:1.1rem; font-weight:900; color:#10b981;">${pr.max1RM} ${settings.unit}</div>
-              <div style="font-size:0.65rem; color:#9ca3af; text-transform:uppercase;">All-Time Best Est. 1RM</div>
-              <div style="font-size:0.62rem; color:#71717a;">on ${pr.best1RMDate}</div>
+              <div style="font-size:1.1rem; font-weight:900; color:var(--soma-accent-text);">${pr.max1RM} ${settings.unit}</div>
+              <div style="font-size:0.65rem; color:var(--soma-text-dim); text-transform:uppercase;">All-Time Best Est. 1RM</div>
+              <div style="font-size:0.62rem; color:var(--soma-text-faint);">on ${pr.best1RMDate}</div>
             </div>
           </div>
-          <div style="font-size:0.72rem; color:#e5e7eb; margin-top:4px;">🏋️ <b>Top Set:</b> ${pr.maxWeight} ${settings.unit} × ${pr.maxRepsAtWeight} reps</div>
+          <div style="font-size:0.72rem; color:var(--soma-text); margin-top:4px;">🏋️ <b>Top Set:</b> ${pr.maxWeight} ${settings.unit} × ${pr.maxRepsAtWeight} reps</div>
           <div style="background:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.12); border-radius:10px; padding:6px 10px; margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size:0.72rem; color:#e5e7eb;">🎯 <b>Next Target:</b> ${pr.suggestion.note}</span>
+            <span style="font-size:0.72rem; color:var(--soma-text);">🎯 <b>Next Target:</b> ${pr.suggestion.note}</span>
             <span class="soma-tag ${pr.suggestion.diffTier.includes('Lvl 1') ? 'soma-tag-emerald' : 'soma-tag-gray'}">${pr.suggestion.diffTier}</span>
           </div>
         </div>
-      `).join("") : `<div style="padding:20px; color:#9ca3af; text-align:center;">No completed sets found for <b>${currentPrFilter}</b>.</div>`;
+      `).join("") : `<div style="padding:20px; color:var(--soma-text-dim); text-align:center;">No completed sets found for <b>${currentPrFilter}</b>.</div>`;
 
-      panePrs.innerHTML = `
+      target.innerHTML = `
         <div class="soma-card">
           <div class="soma-card-title"><span>🏆 Hall of Records & Muscle PR Filter</span></div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;">${filterButtons}</div>
@@ -2871,17 +1761,561 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       };
     };
 
+// ========================================================================
+    // VIEW: BODY WEIGHT LOG & TREND
+    // ------------------------------------------------------------------------
+    // Bodyweight was already being stored per day inside the nutrition file,
+    // but the only way to change it was a field buried in the macro diary and
+    // there was nowhere to see it move. This is its own tab in the macros
+    // widget: log today, see the trend, see the direction of travel.
+    // ========================================================================
+    const renderWeightView = () => {
+      if (!paneWeight) return;
+
+      const unit = settings.unit || "kg";
+      const goalWeight = parseFloat(settings.goalWeight) || null;
+
+      // Every day that has a logged weight, oldest first.
+      const series = Object.keys(nutritionDB)
+        .filter(k => isDateKey(k) && nutritionDB[k] && nutritionDB[k].bodyWeight)
+        .sort()
+        .map(k => ({ date: k, weight: parseFloat(nutritionDB[k].bodyWeight) }))
+        .filter(p => !isNaN(p.weight) && p.weight > 0);
+
+      const todayEntry = nutritionDB[noteDateKey] || {};
+      const todayWeight = parseFloat(todayEntry.bodyWeight) || (series.length ? series[series.length - 1].weight : 78.5);
+
+      const latest = series.length ? series[series.length - 1].weight : null;
+      const first = series.length ? series[0].weight : null;
+      const totalDelta = (latest !== null && first !== null) ? latest - first : 0;
+
+      // 7-day rolling average smooths out day-to-day water swings, which is
+      // the only honest way to read a short weight series.
+      const last7 = series.slice(-7);
+      const prev7 = series.slice(-14, -7);
+      const avg = (arr) => arr.length ? arr.reduce((a, p) => a + p.weight, 0) / arr.length : null;
+      const avg7 = avg(last7);
+      const avgPrev7 = avg(prev7);
+      const weeklyDelta = (avg7 !== null && avgPrev7 !== null) ? avg7 - avgPrev7 : null;
+
+      const fmt = (n, digits = 1) => (n === null || isNaN(n)) ? "—" : n.toFixed(digits);
+      const signed = (n, digits = 1) => {
+        if (n === null || isNaN(n)) return "—";
+        const s = n > 0 ? "+" : "";
+        return s + n.toFixed(digits);
+      };
+      const deltaColor = (n) => {
+        if (n === null || isNaN(n) || Math.abs(n) < 0.05) return "var(--soma-text-dim)";
+        return n > 0 ? "var(--soma-warn)" : "var(--soma-accent-text)";
+      };
+
+      // Sparkline over the last 30 logged points.
+      const pts = series.slice(-30);
+      let chartSvg = `<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:18px 0; text-align:center;">Log your weight on a few days and the trend line appears here.</div>`;
+      if (pts.length >= 2) {
+        const W = 320, H = 110, PAD = 8;
+        const ws = pts.map(p => p.weight);
+        let lo = Math.min(...ws), hi = Math.max(...ws);
+        if (hi - lo < 1) { const mid = (hi + lo) / 2; lo = mid - 0.5; hi = mid + 0.5; }
+        const x = (i) => PAD + (i * (W - PAD * 2)) / (pts.length - 1);
+        const y = (w) => PAD + (H - PAD * 2) * (1 - (w - lo) / (hi - lo));
+        const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.weight).toFixed(1)}`).join(" ");
+        const area = `${line} L ${x(pts.length - 1).toFixed(1)} ${H - PAD} L ${x(0).toFixed(1)} ${H - PAD} Z`;
+        const dots = pts.map((p, i) =>
+          `<circle cx="${x(i).toFixed(1)}" cy="${y(p.weight).toFixed(1)}" r="${i === pts.length - 1 ? 3.5 : 1.8}" fill="${i === pts.length - 1 ? "var(--soma-accent-text)" : "var(--soma-text-faint)"}" />`
+        ).join("");
+        chartSvg = `
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:120px; display:block;">
+            <defs>
+              <linearGradient id="wt-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--soma-accent)" stop-opacity="0.28" />
+                <stop offset="100%" stop-color="var(--soma-accent)" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <path d="${area}" fill="url(#wt-grad)" />
+            <path d="${line}" fill="none" stroke="var(--soma-accent-text)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            ${dots}
+          </svg>
+          <div style="display:flex; justify-content:space-between; font-size:0.62rem; color:var(--soma-text-faint); margin-top:2px;">
+            <span>${pts[0].date}</span><span>${fmt(lo)}–${fmt(hi)} ${unit}</span><span>${pts[pts.length - 1].date}</span>
+          </div>
+        `;
+      }
+
+      const goalRow = goalWeight ? `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.1);">
+          <span style="font-size:0.75rem; color:var(--soma-text-dim);">🎯 Goal</span>
+          <span style="font-size:0.8rem; font-weight:800; color:var(--soma-text);">
+            ${fmt(goalWeight)} ${unit}
+            <span style="color:${deltaColor(latest - goalWeight)}; font-weight:700; margin-left:6px;">${signed(latest !== null ? latest - goalWeight : null)} to go</span>
+          </span>
+        </div>` : "";
+
+      const recentRows = series.slice(-10).reverse().map((p, idx, arr) => {
+        const prev = arr[idx + 1];
+        const d = prev ? p.weight - prev.weight : null;
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.06); font-size:0.78rem;">
+            <span style="color:${p.date === noteDateKey ? "var(--soma-accent-text)" : "var(--soma-text-dim)"}; font-weight:${p.date === noteDateKey ? "800" : "600"};">${p.date}${p.date === noteDateKey ? " • today" : ""}</span>
+            <span style="display:flex; gap:10px; align-items:center;">
+              <b style="color:var(--soma-text);">${fmt(p.weight)} ${unit}</b>
+              <span style="color:${deltaColor(d)}; font-size:0.7rem; min-width:44px; text-align:right;">${d === null ? "" : signed(d)}</span>
+            </span>
+          </div>`;
+      }).join("") || `<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:10px 0;">No entries yet.</div>`;
+
+      paneWeight.innerHTML = `
+        <div class="soma-card">
+          <div class="soma-card-title"><span>⚖️ Log Today's Weight</span></div>
+          <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-bottom:8px;">Weigh in at the same time each day — first thing, after the bathroom, before food — or the numbers fight you.</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="soma-btn" data-action="weight-step" data-delta="-0.1" style="width:44px; flex:none; background:var(--soma-surface-2);">−</button>
+            <input type="number" step="0.1" class="soma-input" id="weight-input" value="${fmt(todayWeight)}" style="flex:1; text-align:center; font-size:1.35rem; font-weight:900; padding:10px;" />
+            <button class="soma-btn" data-action="weight-step" data-delta="0.1" style="width:44px; flex:none; background:var(--soma-surface-2);">+</button>
+          </div>
+          <button class="soma-btn" data-action="save-weight" style="width:100%; margin-top:10px; background:var(--soma-accent); border-color:var(--soma-accent-text); color:var(--soma-accent-ink); font-weight:800;">Save for ${noteDateKey}</button>
+        </div>
+
+        <div class="soma-card">
+          <div class="soma-card-title"><span>📈 Trend</span></div>
+          <div class="soma-stats-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:10px;">
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Latest</div><div class="soma-stat-val">${fmt(latest)} ${unit}</div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">7-Day Avg</div><div class="soma-stat-val" style="color:var(--soma-accent-text);">${fmt(avg7)}</div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Wk Change</div><div class="soma-stat-val" style="color:${deltaColor(weeklyDelta)};">${signed(weeklyDelta)}</div></div>
+          </div>
+          ${chartSvg}
+          <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.75rem;">
+            <span style="color:var(--soma-text-dim);">Since first entry</span>
+            <span style="color:${deltaColor(totalDelta)}; font-weight:800;">${signed(totalDelta)} ${unit} over ${series.length} entries</span>
+          </div>
+          ${goalRow}
+        </div>
+
+        <div class="soma-card">
+          <div class="soma-card-title"><span>🗓️ Recent Entries</span></div>
+          ${recentRows}
+        </div>
+      `;
+    };
+
+    // ========================================================================
+    // VIEW: INSIGHTS  (PRs + CNS in one tab)
+    // ------------------------------------------------------------------------
+    // Both halves are the existing renderers pointed at sub-containers, so
+    // there is one implementation of each and no risk of the merged tab
+    // drifting from the standalone panes in the all-in-one widget.
+    // ========================================================================
+
+    // ========================================================================
+    // WEEKLY VOLUME vs LANDMARKS
+    // ------------------------------------------------------------------------
+    // Rendered inside Insights. Working sets per muscle over the last 7 days,
+    // judged against MEV / MAV / MRV. Warm-ups and drop sets are excluded by
+    // the engine, so these are stimulating sets only.
+    // ========================================================================
+    const TIER_STYLE = {
+      over:    { color: "var(--soma-danger)",      label: "OVER"    },
+      under:   { color: "var(--soma-warn)",        label: "UNDER"   },
+      none:    { color: "var(--soma-text-faint)",  label: "NONE"    },
+      high:    { color: "var(--soma-info)",        label: "HIGH"    },
+      optimal: { color: "var(--soma-accent-text)", label: "OPTIMAL" }
+    };
+
+    const renderVolumeSection = (target) => {
+      if (!target) return;
+      const rows = SomaIntelligenceEngine.volumeReport(history, 7);
+      const trained = rows.filter(r => r.sets > 0);
+      const problems = rows.filter(r => r.tier === "over" || r.tier === "under");
+
+      // Bar is scaled against MRV so every muscle is read on its own terms.
+      const barFor = (r) => {
+        const max = Math.max(r.mrv, r.sets);
+        const pct = (v) => Math.min(100, (v / max) * 100);
+        const st = TIER_STYLE[r.tier] || TIER_STYLE.none;
+        return `
+          <div class="soma-vol-bar">
+            <div class="soma-vol-fill" style="width:${pct(r.sets)}%; background:${st.color};"></div>
+            <div class="soma-vol-tick" style="left:${pct(r.mev)}%;" title="MEV ${r.mev}"></div>
+            <div class="soma-vol-tick" style="left:${pct(r.mav)}%;" title="MAV ${r.mav}"></div>
+            <div class="soma-vol-tick is-mrv" style="left:${pct(r.mrv)}%;" title="MRV ${r.mrv}"></div>
+          </div>`;
+      };
+
+      const rowHtml = rows.map(r => {
+        const st = TIER_STYLE[r.tier] || TIER_STYLE.none;
+        return `
+          <div class="soma-vol-row">
+            <div class="soma-vol-head">
+              <span class="soma-vol-name">${r.label}</span>
+              <span class="soma-vol-count" style="color:${st.color};">${r.sets}<span class="soma-vol-unit"> sets</span></span>
+            </div>
+            ${barFor(r)}
+            <div class="soma-vol-note">${r.note}</div>
+          </div>`;
+      }).join("");
+
+      target.innerHTML = `
+        <div class="soma-card">
+          <div class="soma-card-title"><span>📊 Weekly Volume</span></div>
+          <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-bottom:10px;">
+            Working sets per muscle, last 7 days. Warm-ups and drop sets excluded.
+            Ticks mark <b>MEV</b> (minimum to grow), <b>MAV</b> (productive band) and <b>MRV</b> (recoverable ceiling).
+          </div>
+          <div class="soma-stats-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:4px;">
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Muscles Hit</div><div class="soma-stat-val">${trained.length}</div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Total Sets</div><div class="soma-stat-val">${rows.reduce((a, r) => a + r.sets, 0)}</div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Needs Fixing</div><div class="soma-stat-val" style="color:${problems.length ? 'var(--soma-warn)' : 'var(--soma-accent-text)'};">${problems.length}</div></div>
+          </div>
+        </div>
+
+        <div class="soma-card">
+          ${trained.length === 0
+            ? `<div style="color:var(--soma-text-faint); font-size:0.8rem; padding:14px 0; text-align:center;">No working sets logged in the last 7 days.</div>`
+            : rowHtml}
+        </div>
+      `;
+    };
+
+    // ========================================================================
+    // CONSISTENCY + STRENGTH CHART
+    // ========================================================================
+    let chartExercise = null;
+
+    const renderConsistencySection = (target) => {
+      if (!target) return;
+      const c = SomaIntelligenceEngine.computeConsistency(history, {
+        sessionsPerWeek: settings.sessionsPerWeek || 4
+      });
+
+      const DOW = ["M", "T", "W", "T", "F", "S", "S"];
+      const dots = c.weekDays.map((d, i) => `
+        <div class="soma-dow">
+          <span class="soma-dow-l">${DOW[i]}</span>
+          <span class="soma-dow-d ${d.done ? 'is-done' : d.future ? 'is-future' : 'is-miss'}"></span>
+        </div>`).join("");
+
+      // Eight-week bar strip, tallest bar = the weekly target.
+      const bars = c.weeks.map(w => {
+        const pct = Math.min(100, (w.sessions / Math.max(1, c.target)) * 100);
+        return `<div class="soma-wk" title="${w.week}: ${w.sessions} session${w.sessions === 1 ? '' : 's'}">
+                  <div class="soma-wk-fill ${w.hit ? 'is-hit' : ''}" style="height:${Math.max(6, pct)}%;"></div>
+                </div>`;
+      }).join("");
+
+      target.innerHTML = `
+        <div class="soma-card">
+          <div class="soma-card-title"><span>🔥 Consistency</span></div>
+          <div class="soma-stats-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:10px;">
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Streak</div><div class="soma-stat-val" style="color:var(--soma-accent-text);">${c.currentStreak}<span style="font-size:0.6rem; color:var(--soma-text-faint);"> wk</span></div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Best</div><div class="soma-stat-val">${c.bestStreak}<span style="font-size:0.6rem; color:var(--soma-text-faint);"> wk</span></div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Adherence</div><div class="soma-stat-val">${c.adherence}%</div></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.72rem; color:var(--soma-text-dim); margin-bottom:6px;">
+            <span>This week</span><b style="color:var(--soma-text);">${c.thisWeek} / ${c.target}</b>
+          </div>
+          <div class="soma-dow-row">${dots}</div>
+          <div style="font-size:0.62rem; color:var(--soma-text-faint); text-transform:uppercase; letter-spacing:0.07em; margin:12px 0 5px 0;">Last 8 weeks</div>
+          <div class="soma-wk-row">${bars}</div>
+        </div>`;
+    };
+
+    const renderStrengthChart = (target) => {
+      if (!target) return;
+      const names = SomaIntelligenceEngine.loggedExerciseNames(history);
+      if (!names.length) {
+        target.innerHTML = `<div class="soma-card"><div class="soma-card-title"><span>📈 Strength</span></div>
+          <div style="color:var(--soma-text-faint); font-size:0.78rem; padding:12px 0; text-align:center;">Log a workout and your 1RM trend appears here.</div></div>`;
+        return;
+      }
+      if (!chartExercise || !names.includes(chartExercise)) chartExercise = names[0];
+
+      const pts = SomaIntelligenceEngine.strengthSeries(history, chartExercise);
+      const opts = names.map(n => `<option value="${n}" ${n === chartExercise ? "selected" : ""}>${n}</option>`).join("");
+
+      let body;
+      if (pts.length < 2) {
+        body = `<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:14px 0; text-align:center;">
+                  Only ${pts.length} session logged for this lift — two are needed to draw a trend.</div>`;
+      } else {
+        const W = 320, H = 120, PAD = 10;
+        const vals = pts.map(p => p.est1RM);
+        let lo = Math.min(...vals), hi = Math.max(...vals);
+        if (hi - lo < 2) { const m = (hi + lo) / 2; lo = m - 1; hi = m + 1; }
+        const x = i => PAD + (i * (W - PAD * 2)) / (pts.length - 1);
+        const y = v => PAD + (H - PAD * 2) * (1 - (v - lo) / (hi - lo));
+        const line = pts.map((p, i) => `${i ? "L" : "M"} ${x(i).toFixed(1)} ${y(p.est1RM).toFixed(1)}`).join(" ");
+        const area = `${line} L ${x(pts.length - 1).toFixed(1)} ${H - PAD} L ${x(0).toFixed(1)} ${H - PAD} Z`;
+        const dots = pts.map((p, i) => p.isPR
+          ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.est1RM).toFixed(1)}" r="4" fill="var(--soma-warn)"><title>PR ${p.date}: ${p.weight}${settings.unit} × ${p.reps} (est ${p.est1RM})</title></circle>`
+          : `<circle cx="${x(i).toFixed(1)}" cy="${y(p.est1RM).toFixed(1)}" r="2" fill="var(--soma-accent-text)"><title>${p.date}: ${p.weight}${settings.unit} × ${p.reps} (est ${p.est1RM})</title></circle>`
+        ).join("");
+        const isReps = pts.every(p => p.metric === "reps");
+        const first = pts[0].est1RM, last = pts[pts.length - 1].est1RM;
+        const delta = Math.round((last - first) * 10) / 10;
+
+        body = `
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:130px; display:block;">
+            <defs><linearGradient id="st-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--soma-accent)" stop-opacity="0.25" />
+              <stop offset="100%" stop-color="var(--soma-accent)" stop-opacity="0" />
+            </linearGradient></defs>
+            <path d="${area}" fill="url(#st-grad)" />
+            <path d="${line}" fill="none" stroke="var(--soma-accent-text)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            ${dots}
+          </svg>
+          <div style="display:flex; justify-content:space-between; font-size:0.62rem; color:var(--soma-text-faint); margin-top:2px;">
+            <span>${pts[0].date}</span><span>🏆 = PR</span><span>${pts[pts.length - 1].date}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.75rem;">
+            <span style="color:var(--soma-text-dim);">${isReps ? "Best-set reps change" : "Est. 1RM change"}</span>
+            <b style="color:${delta >= 0 ? 'var(--soma-accent-text)' : 'var(--soma-warn)'};">${delta > 0 ? "+" : ""}${delta} ${isReps ? "reps" : settings.unit} over ${pts.length} sessions</b>
+          </div>`;
+      }
+
+      target.innerHTML = `
+        <div class="soma-card">
+          <div class="soma-card-title"><span>📈 Strength</span></div>
+          <select class="soma-input" id="chart-ex-select" style="margin-bottom:10px;">${opts}</select>
+          ${body}
+        </div>`;
+    };
+
+    const renderInsightsView = () => {
+      if (!paneInsights) return;
+      paneInsights.innerHTML = `
+        <div id="insights-streak"></div>
+        <div id="insights-volume" style="margin-top:4px;"></div>
+        <div id="insights-strength" style="margin-top:4px;"></div>
+        <div id="insights-prs" style="margin-top:4px;"></div>
+        <div id="insights-cns" style="margin-top:4px;"></div>
+      `;
+      renderConsistencySection(paneInsights.querySelector("#insights-streak"));
+      renderVolumeSection(paneInsights.querySelector("#insights-volume"));
+      renderStrengthChart(paneInsights.querySelector("#insights-strength"));
+      renderPrsView(paneInsights.querySelector("#insights-prs"));
+      renderRecoveryView(paneInsights.querySelector("#insights-cns"));
+    };
+
+    // ========================================================================
+    // VIEW: BODY MEASUREMENTS
+    // ------------------------------------------------------------------------
+    // Circumference tracking alongside weight. Recomposition frequently hides
+    // from the scale — waist down while arms hold is progress the weight trend
+    // alone reports as "nothing happened".
+    // ========================================================================
+    const MEASUREMENT_SITES = [
+      { key: "neck",     label: "Neck",     icon: "🦒" },
+      { key: "chest",    label: "Chest",    icon: "🫁" },
+      { key: "waist",    label: "Waist",    icon: "📏" },
+      { key: "hips",     label: "Hips",     icon: "🍑" },
+      { key: "armL",     label: "Arm (L)",  icon: "💪" },
+      { key: "armR",     label: "Arm (R)",  icon: "💪" },
+      { key: "thighL",   label: "Thigh (L)",icon: "🦵" },
+      { key: "thighR",   label: "Thigh (R)",icon: "🦵" },
+      { key: "calf",     label: "Calf",     icon: "🦿" }
+    ];
+
+    const renderMeasurementsView = () => {
+      if (!paneMeasurements) return;
+
+      const todayEntry = nutritionDB[noteDateKey] || {};
+      const todayM = todayEntry.measurements || {};
+
+      // Every day that recorded at least one site, oldest first.
+      const history = Object.keys(nutritionDB)
+        .filter(k => isDateKey(k) && nutritionDB[k] && nutritionDB[k].measurements)
+        .sort()
+        .map(k => ({ date: k, m: nutritionDB[k].measurements }))
+        .filter(e => Object.values(e.m).some(v => parseFloat(v) > 0));
+
+      const lastLogged = (key) => {
+        for (let i = history.length - 1; i >= 0; i--) {
+          const v = parseFloat(history[i].m[key]);
+          if (!isNaN(v) && v > 0) return { value: v, date: history[i].date };
+        }
+        return null;
+      };
+
+      // Change versus the previous distinct entry for that site.
+      const changeFor = (key) => {
+        const seen = [];
+        for (const e of history) {
+          const v = parseFloat(e.m[key]);
+          if (!isNaN(v) && v > 0) seen.push(v);
+        }
+        if (seen.length < 2) return null;
+        return seen[seen.length - 1] - seen[seen.length - 2];
+      };
+
+      const signed = (n) => (n === null || isNaN(n)) ? "" : (n > 0 ? "+" : "") + n.toFixed(1);
+      // Waist and hips going down is progress; limbs going up is progress.
+      const changeColor = (key, n) => {
+        if (n === null || isNaN(n) || Math.abs(n) < 0.05) return "var(--soma-text-faint)";
+        const smallerIsBetter = key === "waist" || key === "hips";
+        const good = smallerIsBetter ? n < 0 : n > 0;
+        return good ? "var(--soma-accent-text)" : "var(--soma-warn)";
+      };
+
+      const rows = MEASUREMENT_SITES.map(site => {
+        const last = lastLogged(site.key);
+        const delta = changeFor(site.key);
+        const val = todayM[site.key] !== undefined && todayM[site.key] !== ""
+          ? todayM[site.key]
+          : (last ? last.value : "");
+        return `
+          <div style="display:grid; grid-template-columns: 1.3fr 1fr 58px; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--soma-border);">
+            <span style="font-size:0.78rem; color:var(--soma-text-dim); font-weight:600;">${site.icon} ${site.label}</span>
+            <input type="number" step="0.1" class="soma-input measure-input" data-site="${site.key}"
+                   value="${val}" placeholder="—" style="padding:7px; text-align:center; font-weight:700;" />
+            <span style="font-size:0.7rem; font-weight:800; text-align:right; color:${changeColor(site.key, delta)};">${signed(delta)}</span>
+          </div>`;
+      }).join("");
+
+      const recent = history.slice(-6).reverse().map(e => {
+        const filled = MEASUREMENT_SITES
+          .filter(s => parseFloat(e.m[s.key]) > 0)
+          .map(s => `${s.label} ${parseFloat(e.m[s.key]).toFixed(1)}`)
+          .join(" · ");
+        return `
+          <div style="padding:7px 0; border-bottom:1px solid var(--soma-border); font-size:0.74rem;">
+            <div style="color:${e.date === noteDateKey ? "var(--soma-accent-text)" : "var(--soma-text-dim)"}; font-weight:800;">${e.date}${e.date === noteDateKey ? " • today" : ""}</div>
+            <div style="color:var(--soma-text-faint); margin-top:2px;">${filled || "—"}</div>
+          </div>`;
+      }).join("") || `<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:10px 0;">Nothing logged yet.</div>`;
+
+      paneMeasurements.innerHTML = `
+        <div class="soma-card">
+          <div class="soma-card-title"><span>📐 Measurements</span></div>
+          <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-bottom:10px;">
+            Measure cold, first thing, same spot each time. Weekly is plenty — daily noise will only annoy you.
+            Change shown is against your previous entry.
+          </div>
+          <div style="display:grid; grid-template-columns: 1.3fr 1fr 58px; gap:8px; padding-bottom:6px; border-bottom:1px solid var(--soma-border);">
+            <span class="soma-stat-lbl">SITE</span>
+            <span class="soma-stat-lbl" style="text-align:center;">CM</span>
+            <span class="soma-stat-lbl" style="text-align:right;">CHG</span>
+          </div>
+          ${rows}
+          <button class="soma-btn soma-btn-accent" data-action="save-measurements" style="width:100%; margin-top:12px; padding:11px;">Save for ${noteDateKey}</button>
+        </div>
+
+        <div class="soma-card">
+          <div class="soma-card-title"><span>🗓️ Recent</span></div>
+          ${recent}
+        </div>
+      `;
+    };
+
+    // ========================================================================
+    // VIEW: SLEEP
+    // ------------------------------------------------------------------------
+    // Hours plus a 1-5 quality rating. Stored per day in the nutrition file
+    // beside weight, so the pre-workout readiness check can read it without
+    // asking you the same question twice.
+    // ========================================================================
+    const renderSleepView = () => {
+      if (!paneSleep) return;
+
+      const todayEntry = nutritionDB[noteDateKey] || {};
+      const todaySleep = todayEntry.sleep || {};
+      const hours = todaySleep.hours !== undefined ? todaySleep.hours : "";
+      const quality = parseInt(todaySleep.quality) || 3;
+
+      const series = Object.keys(nutritionDB)
+        .filter(k => isDateKey(k) && nutritionDB[k] && nutritionDB[k].sleep && parseFloat(nutritionDB[k].sleep.hours) > 0)
+        .sort()
+        .map(k => ({ date: k, hours: parseFloat(nutritionDB[k].sleep.hours), quality: parseInt(nutritionDB[k].sleep.quality) || 3 }));
+
+      const avg = (arr, f) => arr.length ? arr.reduce((a, p) => a + f(p), 0) / arr.length : null;
+      const last7 = series.slice(-7);
+      const avg7 = avg(last7, p => p.hours);
+      const avgQ7 = avg(last7, p => p.quality);
+      const debt = avg7 !== null ? (8 - avg7) * 7 : null;
+
+      const fmt = (n, d = 1) => (n === null || isNaN(n)) ? "—" : n.toFixed(d);
+
+      let chart = `<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:18px 0; text-align:center;">Log a few nights and the trend appears here.</div>`;
+      if (series.length >= 2) {
+        const pts = series.slice(-30);
+        const W = 320, H = 110, PAD = 8;
+        const hi = Math.max(10, Math.max(...pts.map(p => p.hours)));
+        const lo = Math.min(4, Math.min(...pts.map(p => p.hours)));
+        const x = (i) => PAD + (i * (W - PAD * 2)) / (pts.length - 1);
+        const y = (h) => PAD + (H - PAD * 2) * (1 - (h - lo) / (hi - lo));
+        const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.hours).toFixed(1)}`).join(" ");
+        // 8-hour reference line, so the trend has something to be judged against.
+        const eightY = y(8).toFixed(1);
+        const dots = pts.map((p, i) =>
+          `<circle cx="${x(i).toFixed(1)}" cy="${y(p.hours).toFixed(1)}" r="${i === pts.length - 1 ? 3.5 : 1.8}" fill="${p.hours >= 7 ? "var(--soma-accent-text)" : "var(--soma-warn)"}" />`
+        ).join("");
+        chart = `
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:120px; display:block;">
+            <line x1="${PAD}" y1="${eightY}" x2="${W - PAD}" y2="${eightY}" stroke="var(--soma-border-strong)" stroke-width="1" stroke-dasharray="3 3" />
+            <path d="${line}" fill="none" stroke="var(--soma-accent-text)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            ${dots}
+          </svg>
+          <div style="display:flex; justify-content:space-between; font-size:0.62rem; color:var(--soma-text-faint); margin-top:2px;">
+            <span>${pts[0].date}</span><span>dashed = 8h</span><span>${pts[pts.length - 1].date}</span>
+          </div>`;
+      }
+
+      const stars = [1, 2, 3, 4, 5].map(n =>
+        `<button class="soma-quality-dot ${n <= quality ? 'active' : ''}" data-action="set-sleep-quality" data-q="${n}" title="${n}/5">${n <= quality ? "●" : "○"}</button>`
+      ).join("");
+
+      const recent = series.slice(-10).reverse().map(p => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--soma-border); font-size:0.78rem;">
+          <span style="color:${p.date === noteDateKey ? "var(--soma-accent-text)" : "var(--soma-text-dim)"}; font-weight:${p.date === noteDateKey ? "800" : "600"};">${p.date}${p.date === noteDateKey ? " • today" : ""}</span>
+          <span style="display:flex; gap:12px; align-items:center;">
+            <b style="color:${p.hours >= 7 ? "var(--soma-text)" : "var(--soma-warn)"};">${fmt(p.hours)} h</b>
+            <span style="color:var(--soma-text-faint); font-size:0.7rem;">${"●".repeat(p.quality)}${"○".repeat(5 - p.quality)}</span>
+          </span>
+        </div>`).join("") || `<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:10px 0;">No entries yet.</div>`;
+
+      paneSleep.innerHTML = `
+        <div class="soma-card">
+          <div class="soma-card-title"><span>😴 Last Night</span></div>
+          <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-bottom:10px;">Time actually asleep, not time in bed.</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="soma-btn" data-action="sleep-step" data-delta="-0.25" style="width:44px; flex:none;">−</button>
+            <input type="number" step="0.25" class="soma-input" id="sleep-input" value="${hours}" placeholder="7.5"
+                   style="flex:1; text-align:center; font-size:1.35rem; font-weight:900; padding:10px;" />
+            <button class="soma-btn" data-action="sleep-step" data-delta="0.25" style="width:44px; flex:none;">+</button>
+          </div>
+          <div class="soma-field-lbl" style="margin-top:12px;">Quality</div>
+          <div class="soma-quality-row">${stars}</div>
+          <button class="soma-btn soma-btn-accent" data-action="save-sleep" style="width:100%; margin-top:12px; padding:11px;">Save for ${noteDateKey}</button>
+        </div>
+
+        <div class="soma-card">
+          <div class="soma-card-title"><span>📈 Trend</span></div>
+          <div class="soma-stats-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:10px;">
+            <div class="soma-stat-box"><div class="soma-stat-lbl">7-Night Avg</div><div class="soma-stat-val">${fmt(avg7)} h</div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Avg Quality</div><div class="soma-stat-val" style="color:var(--soma-accent-text);">${fmt(avgQ7)}</div></div>
+            <div class="soma-stat-box"><div class="soma-stat-lbl">Weekly Debt</div><div class="soma-stat-val" style="color:${debt !== null && debt > 3 ? 'var(--soma-warn)' : 'var(--soma-text)'};">${debt === null ? "—" : (debt > 0 ? fmt(debt) + "h" : "0h")}</div></div>
+          </div>
+          ${chart}
+        </div>
+
+        <div class="soma-card">
+          <div class="soma-card-title"><span>🗓️ Recent Nights</span></div>
+          ${recent}
+        </div>
+      `;
+    };
+
     const renderCreatineView = () => {
+      if (!paneCreatine) return;
       const { satPct, streak, todayDose, stashGrams, daysLeft, finishFormatted } = computeCreatineMetrics();
       const isSaturated = satPct >= 95;
-      const themeColor = satPct >= 95 ? "#10b981" : satPct >= 80 ? "#34d399" : "#f59e0b";
+      const themeColor = satPct >= 95 ? "var(--soma-accent)" : satPct >= 80 ? "#34d399" : "var(--soma-warn)";
 
       paneCreatine.innerHTML = `
         <div class="soma-card ${isSaturated ? 'soma-card-emerald-glow' : ''}">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-size:1.05rem; font-weight:900; color:#fff;">⚡ Creatine Monohydrate Saturation</span>
-              ${streak > 0 ? `<span class="soma-tag" style="background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#f59e0b;">🔥 ${streak}d Streak</span>` : ''}
+              <span style="font-size:1.05rem; font-weight:900; color:var(--soma-text);">⚡ Creatine Monohydrate Saturation</span>
+              ${streak > 0 ? `<span class="soma-tag" style="background:rgba(245,158,11,0.15); border:1px solid var(--soma-warn); color:var(--soma-warn);">🔥 ${streak}d Streak</span>` : ''}
             </div>
             <span style="font-size:0.85rem; font-weight:800; color:${themeColor};">${satPct}% • ${isSaturated ? 'Saturated' : 'Building'}</span>
           </div>
@@ -2891,18 +2325,18 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           </div>
 
           <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; gap:8px;">
-            <div style="font-size:0.75rem; color:#9ca3af;">
-              Home Tub Stash: <b style="color:#fff;">${stashGrams}g left</b> (${daysLeft}d supply remaining)
+            <div style="font-size:0.75rem; color:var(--soma-text-dim);">
+              Home Tub Stash: <b style="color:var(--soma-text);">${stashGrams}g left</b> (${daysLeft}d supply remaining)
             </div>
-            <span style="font-size:0.75rem; color:#f59e0b; font-weight:800;">
+            <span style="font-size:0.75rem; color:var(--soma-warn); font-weight:800;">
               ${stashGrams > 0 ? `Depletion ~ ${finishFormatted}` : '⚠️ Tub is Empty'}
             </span>
           </div>
 
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; flex-wrap:wrap; gap:10px;">
-            <span style="font-size:0.75rem; color:#9ca3af;">Intracellular Hydration • 5g Maintenance</span>
+            <span style="font-size:0.75rem; color:var(--soma-text-dim);">Intracellular Hydration • 5g Maintenance</span>
             <div style="display:flex; gap:8px; align-items:center;">
-              <span style="font-size:0.82rem; font-weight:800; color:#fff; margin-right:4px;">Today: <b>${todayDose}g</b></span>
+              <span style="font-size:0.82rem; font-weight:800; color:var(--soma-text); margin-right:4px;">Today: <b>${todayDose}g</b></span>
               <button class="soma-btn" data-action="add-creatine-dose" data-grams="3">+3g</button>
               <button class="soma-btn soma-btn-save" data-action="add-creatine-dose" data-grams="5">+5g</button>
               <button class="soma-btn" data-action="reset-creatine-today">↺ Reset</button>
@@ -2915,7 +2349,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     // ========================================================================
     // VIEW 6: BALANCE & CNS SPINAL FATIGUE
     // ========================================================================
-    const renderRecoveryView = () => {
+    let lastRecoveryTarget = null;
+    const renderRecoveryView = (target = lastRecoveryTarget || paneRecovery) => {
+      if (!target) return;
+      lastRecoveryTarget = target;
       const fourteenDaysAgo = Date.now() - (14 * 86400000);
       let rollingAxialVol = 0, rollingTotalVol = 0, pushVol = 0, pullVol = 0, legVol = 0;
       let latestSession = null;
@@ -2940,21 +2377,21 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       const axialRatio = Math.round((rollingAxialVol / (rollingTotalVol || 1)) * 100);
       const needsDeload = axialRatio > 40 && rollingAxialVol > 12000;
 
-      paneRecovery.innerHTML = `
+      target.innerHTML = `
         <div class="soma-card">
           <div class="soma-card-title"><span>⚡ Systemic Nervous System & Axial Index</span></div>
-          <div style="background:#111217; border:1px solid ${needsDeload ? '#ef4444' : 'rgba(255,255,255,0.08)'}; border-radius:14px; padding:14px;">
+          <div style="background:var(--soma-surface); border:1px solid ${needsDeload ? 'var(--soma-danger)' : 'rgba(255,255,255,0.08)'}; border-radius:14px; padding:14px;">
             <div style="display:flex; justify-content:space-between; font-size:0.8rem; font-weight:800; margin-bottom:6px;">
               <span>14-Day Spinal Axial Stress</span>
-              <span style="color:${needsDeload ? '#ef4444' : '#10b981'};">${axialRatio}% Ratio (${rollingAxialVol.toLocaleString()} ${settings.unit})</span>
+              <span style="color:${needsDeload ? 'var(--soma-danger)' : 'var(--soma-accent-text)'};">${axialRatio}% Ratio (${rollingAxialVol.toLocaleString()} ${settings.unit})</span>
             </div>
             <div class="soma-bar-wrap">
-              <div class="soma-bar-fill" style="width:${Math.min(100, axialRatio * 2)}%; background:${needsDeload ? '#ef4444' : '#10b981'};"></div>
+              <div class="soma-bar-fill" style="width:${Math.min(100, axialRatio * 2)}%; background:${needsDeload ? 'var(--soma-danger)' : 'var(--soma-accent)'};"></div>
             </div>
             ${needsDeload ? `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding-top:12px; border-top:1px dashed rgba(239,68,68,0.3);">
                 <span style="font-size:0.75rem; color:#fca5a5;">High axial stress detected — consider a deload week.</span>
-                <button class="soma-btn" data-action="apply-deload-week" style="background:#ef4444; border-color:#ef4444; color:#fff;">Apply Deload Week</button>
+                <button class="soma-btn" data-action="apply-deload-week" style="background:var(--soma-danger); border-color:var(--soma-danger); color:var(--soma-text);">Apply Deload Week</button>
               </div>
             ` : ''}
           </div>
@@ -2963,19 +2400,19 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         <div class="soma-card">
           <div class="soma-card-title"><span>⚖️ Push / Pull / Leg Structural Balance</span></div>
           <div style="display:flex; height:14px; border-radius:6px; overflow:hidden; margin:8px 0;">
-            <div style="width:${pushPct}%; background:#e5e7eb;"></div>
-            <div style="width:${pullPct}%; background:#10b981;"></div>
-            <div style="width:${legPct}%; background:#f59e0b;"></div>
+            <div style="width:${pushPct}%; background:var(--soma-text);"></div>
+            <div style="width:${pullPct}%; background:var(--soma-accent);"></div>
+            <div style="width:${legPct}%; background:var(--soma-warn);"></div>
           </div>
           <div style="display:flex; justify-content:space-between; font-size:0.75rem; font-weight:800;">
-            <span style="color:#e5e7eb;">Push: ${pushPct}%</span>
-            <span style="color:#10b981;">Pull: ${pullPct}%</span>
-            <span style="color:#f59e0b;">Legs: ${legPct}%</span>
+            <span style="color:var(--soma-text);">Push: ${pushPct}%</span>
+            <span style="color:var(--soma-accent-text);">Pull: ${pullPct}%</span>
+            <span style="color:var(--soma-warn);">Legs: ${legPct}%</span>
           </div>
         </div>
       `;
 
-      paneRecovery.querySelector('[data-action="apply-deload-week"]')?.addEventListener("click", async () => {
+      target.querySelector('[data-action="apply-deload-week"]')?.addEventListener("click", async () => {
         const overrides = settings.scheduleOverrides || {};
         const start = parseLocalDateKey(noteDateKey);
         for (let i = 0; i < 7; i++) {
@@ -2994,9 +2431,115 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     // ========================================================================
     // VIEW 7: SETTINGS & CONFIGURATION
     // ========================================================================
+    // Which routine is open in the editor, or null for the list view.
+    let editingRoutine = null;
+
+    const routineEditorHtml = () => {
+      const all = routines();
+      const custom = settings.customRoutines || {};
+
+      if (editingRoutine === null) {
+        const rows = Object.keys(all).map(name => {
+          const n = (all[name] || []).length;
+          const edited = Object.prototype.hasOwnProperty.call(custom, name);
+          return `
+            <div class="soma-rt-row">
+              <div class="soma-rt-info">
+                <span class="soma-rt-name">${name}</span>
+                <span class="soma-rt-count">${n} exercise${n === 1 ? "" : "s"}${edited ? " · edited" : ""}</span>
+              </div>
+              <div class="soma-rt-actions">
+                <button class="soma-btn" data-action="rt-edit" data-name="${name}">✎</button>
+                <button class="soma-btn soma-rt-del" data-action="rt-delete" data-name="${name}">🗑</button>
+              </div>
+            </div>`;
+        }).join("");
+
+        return `
+          <div class="soma-card">
+            <div class="soma-card-title">
+              <span>📋 Routines</span>
+              <button class="soma-btn soma-btn-accent" data-action="rt-new" style="padding:4px 12px; font-size:0.7rem;">+ New</button>
+            </div>
+            <div style="font-size:0.68rem; color:var(--soma-text-dim); margin-bottom:8px;">
+              Saved to your vault, not the plugin — updates will not overwrite them.
+            </div>
+            ${rows || '<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:10px 0;">No routines yet.</div>'}
+          </div>`;
+      }
+
+      // --- editing one routine ---
+      const list = SomaIntelligenceEngine.normalizeRoutine(all[editingRoutine] || []);
+      const items = list.map((it, i) => `
+        <div class="soma-rt-item">
+          <span class="soma-rt-item-name">${it.name}</span>
+          <span class="soma-rt-item-btns">
+            <button class="soma-btn" data-action="rt-move" data-i="${i}" data-dir="-1" ${i === 0 ? "disabled" : ""}>↑</button>
+            <button class="soma-btn" data-action="rt-move" data-i="${i}" data-dir="1" ${i === list.length - 1 ? "disabled" : ""}>↓</button>
+            <button class="soma-btn soma-rt-del" data-action="rt-remove-ex" data-i="${i}">✕</button>
+          </span>
+        </div>`).join("");
+
+      const options = exerciseDB
+        .map(e => e.name)
+        .sort((a, b) => a.localeCompare(b))
+        .map(n => `<option value="${n}"></option>`).join("");
+
+      return `
+        <div class="soma-card">
+          <div class="soma-card-title">
+            <span>✎ Editing Routine</span>
+            <button class="soma-btn" data-action="rt-back" style="padding:4px 12px; font-size:0.7rem;">← Back</button>
+          </div>
+          <div class="soma-field-lbl">Name</div>
+          <input type="text" class="soma-input" id="rt-name" value="${editingRoutine}" style="margin-bottom:10px;" />
+
+          <div class="soma-field-lbl">Exercises (${list.length})</div>
+          <div style="margin-bottom:8px;">
+            ${items || '<div style="color:var(--soma-text-faint); font-size:0.78rem; padding:8px 0;">Nothing added yet.</div>'}
+          </div>
+
+          <div style="display:flex; gap:6px; margin-bottom:10px;">
+            <input type="text" class="soma-input" id="rt-add" list="rt-ex-list" placeholder="Add an exercise…" style="flex:1;" />
+            <datalist id="rt-ex-list">${options}</datalist>
+            <button class="soma-btn" data-action="rt-add-ex" style="width:52px;">+</button>
+          </div>
+
+          <button class="soma-btn soma-btn-accent" data-action="rt-save" style="width:100%; padding:11px;">Save Routine</button>
+        </div>`;
+    };
+
     const renderSettingsView = () => {
+      if (!paneSettings) return;
+      const appearanceOnly = profile.id === "habits";
       paneSettings.innerHTML = `
         <div class="soma-card">
+          <div class="soma-card-title"><span>🎨 Appearance</span></div>
+
+          <div class="soma-field-lbl">Theme</div>
+          <div class="soma-theme-row">
+            <button class="soma-theme-btn ${settings.theme === 'dark' ? 'active' : ''}" data-action="set-theme" data-theme="dark">🌙 Dark</button>
+            <button class="soma-theme-btn ${settings.theme === 'light' ? 'active' : ''}" data-action="set-theme" data-theme="light">☀️ Light</button>
+            <button class="soma-theme-btn ${settings.theme === 'system' ? 'active' : ''}" data-action="set-theme" data-theme="system">🖥️ Auto</button>
+          </div>
+          <div style="font-size:0.66rem; color:var(--soma-text-faint); margin:-4px 0 14px 0;">Auto follows whatever light/dark theme Obsidian is set to.</div>
+
+          <div class="soma-field-lbl">Accent Colour</div>
+          <div class="soma-swatch-grid">
+            ${ACCENT_PRESETS.map(p => `
+              <div class="soma-swatch ${String(settings.accent).toLowerCase() === p.color.toLowerCase() ? 'active' : ''}"
+                   data-action="set-accent" data-color="${p.color}" title="${p.label}"
+                   style="background:${p.color};"></div>
+            `).join("")}
+          </div>
+          <div class="soma-accent-custom">
+            <input type="color" id="cfg-accent-custom" value="${normalizeAccent(settings.accent)}" />
+            <span style="font-size:0.7rem; color:var(--soma-text-dim);">Or pick any colour — applies instantly.</span>
+          </div>
+        </div>
+
+        ${(appearanceOnly || profile.id === "macros" || profile.id === "sleep") ? "" : routineEditorHtml()}
+        ${appearanceOnly ? "" : `<div class="soma-card">
           <div class="soma-card-title"><span>⚙️ System Preferences</span></div>
           
           <div style="margin-bottom:12px;">
@@ -3026,6 +2569,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             <button class="soma-btn soma-btn-accent" data-action="save-settings-full" style="width:100%; padding:12px;">💾 Save All Preferences</button>
           </div>
         </div>
+        `}
       `;
     };
 
@@ -3067,8 +2611,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             if (sList) {
               sList.innerHTML = exerciseDB.slice(0, 8).map(ex => `
                 <div class="soma-search-item" data-action="select-search-ex" data-name="${ex.name}">
-                  <div style="font-weight:700; color:#ffffff; font-size:0.85rem;">${ex.name}</div>
-                  <div style="font-size:0.72rem; color:#9ca3af; display:flex; gap:6px; margin-top:2px;">
+                  <div style="font-weight:700; color:var(--soma-text); font-size:0.85rem;">${ex.name}</div>
+                  <div style="font-size:0.72rem; color:var(--soma-text-dim); display:flex; gap:6px; margin-top:2px;">
                     <span>${ex.subTarget}</span> • <span>${ex.tier}</span>
                   </div>
                 </div>
@@ -3160,7 +2704,9 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         case "toggle-set-type": {
           state.recordSnapshot();
           const setForToggle = state.sessionExercises[btn.dataset.ex].sets[btn.dataset.set];
-          setForToggle.type = setForToggle.type === "dropset" ? "normal" : "dropset";
+          // normal -> dropset -> warmup -> normal
+          const CYCLE = { normal: "dropset", dropset: "warmup", warmup: "normal" };
+          setForToggle.type = CYCLE[setForToggle.type] || "dropset";
           renderTracker();
           break;
         }
@@ -3232,24 +2778,24 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           const optionsHtml = ROTATION_SEQUENCE.map(s => `<option value="${s}" ${projection.split === s ? 'selected' : ''}>${s}</option>`).join("");
 
           calDetail.innerHTML = `
-            <div style="background:#111217; border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:12px;">
+            <div style="background:var(--soma-surface); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:12px;">
               <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                 <div>
                   <span class="soma-tag ${session ? 'soma-tag-emerald' : 'soma-tag-gray'}">${session ? 'Logged Workout' : 'Scheduled Program'}</span>
-                  <h3 style="margin:4px 0 0 0; color:#fff; font-size:1.05rem;">${session ? session.split : projection.split}</h3>
-                  <div style="font-size:0.75rem; color:#9ca3af;">${dateKey}</div>
+                  <h3 style="margin:4px 0 0 0; color:var(--soma-text); font-size:1.05rem;">${session ? session.split : projection.split}</h3>
+                  <div style="font-size:0.75rem; color:var(--soma-text-dim);">${dateKey}</div>
                 </div>
                 <button class="soma-btn-del" data-action="close-cal-detail">✕</button>
               </div>
               
               <div style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
-                <div style="font-size:0.72rem; color:#cbd5e1; font-weight:800; margin-bottom:4px;">Change / Realign Program for this day:</div>
+                <div style="font-size:0.72rem; color:var(--soma-text-dim); font-weight:800; margin-bottom:4px;">Change / Realign Program for this day:</div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
                   <select class="soma-input" id="cal-override-select" style="font-size:0.75rem; height:34px; flex:1;">${optionsHtml}</select>
                   <button class="soma-btn soma-btn-accent" data-action="save-cal-override" data-date="${dateKey}">Set</button>
                   <button class="soma-btn" data-action="cascade-shift-schedule" data-date="${dateKey}" title="Shift all subsequent days in sequence">⏩ Cascade</button>
                 </div>
-                <button class="soma-btn" data-action="load-cal-to-workout" data-date="${dateKey}" style="width:100%; background:#2563eb; color:#ffffff; font-weight:800;">⚡ Load Split Into Active Workout</button>
+                <button class="soma-btn" data-action="load-cal-to-workout" data-date="${dateKey}" style="width:100%; background:#2563eb; color:var(--soma-text); font-weight:800;">⚡ Load Split Into Active Workout</button>
               </div>
             </div>
           `;
@@ -3320,6 +2866,162 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           renderPrsView();
           break;
         }
+        case "weight-step": {
+          // Nudge the field without committing — nothing is stored until Save,
+          // so a stray tap can't overwrite a real weigh-in.
+          const input = paneWeight?.querySelector("#weight-input");
+          if (input) {
+            const delta = parseFloat(btn.dataset.delta) || 0;
+            const next = (parseFloat(input.value) || 0) + delta;
+            input.value = (Math.round(next * 10) / 10).toFixed(1);
+          }
+          break;
+        }
+        case "save-weight": {
+          const input = paneWeight?.querySelector("#weight-input");
+          const val = parseFloat(input?.value);
+          if (isNaN(val) || val <= 0) {
+            new Notice("Enter a valid weight first.");
+            break;
+          }
+          // Written into the same per-day nutrition record the macro diary
+          // reads, so the two tabs can never disagree about today's weight.
+          if (!nutritionDB[noteDateKey]) nutritionDB[noteDateKey] = {};
+          const savedW = Math.round(val * 10) / 10;
+          nutritionDB[noteDateKey].bodyWeight = savedW;
+
+          // Protein scales with bodyweight, so a new weigh-in should move the
+          // target with it rather than leaving a stale number behind.
+          let proteinNote = "";
+          if (nutritionDB._settings && nutritionDB._settings.autoProteinTarget) {
+            const target = SomaIntelligenceEngine.proteinTargetFor(
+              savedW, nutritionDB._settings.proteinPerKg || 2.0
+            );
+            if (target !== null) {
+              if (!nutritionDB[noteDateKey].goals) nutritionDB[noteDateKey].goals = { ...DEFAULT_GOALS };
+              nutritionDB[noteDateKey].goals.protein = target;
+              proteinNote = " · protein goal " + target + "g";
+            }
+          }
+          await saveNutritionDB();
+          new Notice(`Weight saved: ${savedW} ${settings.unit}${proteinNote}`);
+          renderWeightView();
+          break;
+        }
+        case "save-measurements": {
+          const vals = {};
+          paneMeasurements?.querySelectorAll(".measure-input").forEach(inp => {
+            const v = parseFloat(inp.value);
+            if (!isNaN(v) && v > 0) vals[inp.dataset.site] = Math.round(v * 10) / 10;
+          });
+          if (Object.keys(vals).length === 0) {
+            new Notice("Nothing to save — fill in at least one measurement.");
+            break;
+          }
+          if (!nutritionDB[noteDateKey]) nutritionDB[noteDateKey] = {};
+          nutritionDB[noteDateKey].measurements = vals;
+          await saveNutritionDB();
+          new Notice("Measurements saved for " + noteDateKey + ".");
+          renderMeasurementsView();
+          break;
+        }
+        case "sleep-step": {
+          const inp = paneSleep?.querySelector("#sleep-input");
+          if (inp) {
+            const delta = parseFloat(btn.dataset.delta) || 0;
+            const next = Math.max(0, (parseFloat(inp.value) || 0) + delta);
+            inp.value = (Math.round(next * 4) / 4).toFixed(2).replace(/\.?0+$/, "");
+          }
+          break;
+        }
+        case "set-sleep-quality": {
+          // Held in the draft record so the dots respond immediately; the
+          // Save button is still what commits hours and quality together.
+          pendingSleepQuality = Math.min(5, Math.max(1, parseInt(btn.dataset.q) || 3));
+          const inpQ = paneSleep?.querySelector("#sleep-input");
+          const keepHours = inpQ ? inpQ.value : "";
+          if (!nutritionDB[noteDateKey]) nutritionDB[noteDateKey] = {};
+          if (!nutritionDB[noteDateKey].sleep) nutritionDB[noteDateKey].sleep = {};
+          nutritionDB[noteDateKey].sleep.quality = pendingSleepQuality;
+          renderSleepView();
+          const restored = paneSleep?.querySelector("#sleep-input");
+          if (restored && keepHours !== "") restored.value = keepHours;
+          break;
+        }
+        case "save-sleep": {
+          const inp = paneSleep?.querySelector("#sleep-input");
+          const h = parseFloat(inp?.value);
+          if (isNaN(h) || h <= 0 || h > 24) {
+            new Notice("Enter hours slept (0-24).");
+            break;
+          }
+          if (!nutritionDB[noteDateKey]) nutritionDB[noteDateKey] = {};
+          const existingQ = nutritionDB[noteDateKey].sleep?.quality;
+          nutritionDB[noteDateKey].sleep = {
+            hours: Math.round(h * 4) / 4,
+            quality: pendingSleepQuality || parseInt(existingQ) || 3
+          };
+          await saveNutritionDB();
+          new Notice("Sleep saved: " + nutritionDB[noteDateKey].sleep.hours + "h");
+          renderSleepView();
+          break;
+        }
+        case "swap-exercise": {
+          state.recordSnapshot();
+          const idx = parseInt(btn.dataset.ex);
+          const name = btn.dataset.name;
+          const meta = exerciseDB.find(e => e.name === name);
+          if (!meta || isNaN(idx)) break;
+          const old = state.sessionExercises[idx];
+          const last = this.getLastPerformance(history, meta.name);
+          const target = buildAutoTarget({ ...meta, isBW: !!meta.isBW }, last);
+          // Keep the superset tag and set count so the swap slots into the
+          // session where the original sat.
+          state.sessionExercises[idx] = {
+            ...meta,
+            name: meta.name,
+            muscle: meta.muscle || "Custom",
+            subTarget: meta.subTarget || "",
+            targetKeys: meta.targetKeys || [],
+            isBW: !!meta.isBW,
+            isAxial: !!meta.isAxial,
+            usesBar: exerciseUsesBar(meta.name),
+            barWeight: settings.barWeight,
+            overloadTarget: target,
+            supersetGroup: old.supersetGroup || "",
+            sets: (old.sets || []).map(() => ({
+              weight: target.weight > 0 ? target.weight : (meta.isBW ? 0 : ""),
+              reps: target.reps, failure: 2, done: false, type: "normal"
+            }))
+          };
+          renderTracker();
+          new Notice("Swapped in " + meta.name + ".");
+          break;
+        }
+        case "save-readiness": {
+          const sore = parseInt(paneWorkout?.querySelector("#ck-soreness")?.value);
+          const stress = parseInt(paneWorkout?.querySelector("#ck-stress")?.value);
+          if (!nutritionDB[noteDateKey]) nutritionDB[noteDateKey] = {};
+          nutritionDB[noteDateKey].readiness = {
+            soreness: isNaN(sore) ? 3 : sore,
+            stress: isNaN(stress) ? 3 : stress
+          };
+          await saveNutritionDB();
+          const score = todaySubjective();
+          new Notice(score === null ? "Check-in saved." : "Check-in saved — readiness " + score + "%.");
+          // Targets depend on this, so rebuild them.
+          state.sessionExercises.forEach((e, i) => {
+            const last = this.getLastPerformance(history, e.name);
+            state.sessionExercises[i].overloadTarget = buildAutoTarget(e, last);
+          });
+          renderTracker();
+          break;
+        }
+        case "dismiss-readiness": {
+          readinessDismissed = true;
+          renderTracker();
+          break;
+        }
         case "add-creatine-dose": {
           const grams = parseInt(btn.dataset.grams) || 5;
           if (!nutritionDB[noteDateKey]) nutritionDB[noteDateKey] = { creatine: 0 };
@@ -3335,6 +3037,122 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           if (nutritionDB[noteDateKey]) nutritionDB[noteDateKey].creatine = 0;
           await saveNutritionDB();
           renderCreatineView();
+          break;
+        }
+        // ---- routine editor ------------------------------------------
+        case "rt-new": {
+          const all = routines();
+          let name = "New Routine", i = 2;
+          while (Object.prototype.hasOwnProperty.call(all, name)) name = "New Routine " + i++;
+          const custom = { ...(settings.customRoutines || {}) };
+          custom[name] = [];
+          await saveSettings({ customRoutines: custom });
+          editingRoutine = name;
+          renderSettingsView();
+          break;
+        }
+        case "rt-edit": {
+          editingRoutine = btn.dataset.name;
+          renderSettingsView();
+          break;
+        }
+        case "rt-back": {
+          editingRoutine = null;
+          renderSettingsView();
+          break;
+        }
+        case "rt-delete": {
+          const name = btn.dataset.name;
+          if (!name) break;
+          const custom = { ...(settings.customRoutines || {}) };
+          delete custom[name];
+          // Built-ins live in code, so removal has to be remembered or the
+          // routine simply reappears on the next load.
+          if (Object.prototype.hasOwnProperty.call(ROUTINE_PRESETS, name)) {
+            custom._removed = [...new Set([...(custom._removed || []), name])];
+          }
+          await saveSettings({ customRoutines: custom });
+          if (editingRoutine === name) editingRoutine = null;
+          new Notice("Deleted \"" + name + "\".");
+          renderSettingsView();
+          break;
+        }
+        case "rt-add-ex": {
+          const inp = paneSettings?.querySelector("#rt-add");
+          const val = (inp?.value || "").trim();
+          if (!val || editingRoutine === null) break;
+          const all = routines();
+          const list = SomaIntelligenceEngine.normalizeRoutine(all[editingRoutine] || []);
+          if (list.some(x => x.name.toLowerCase() === val.toLowerCase())) {
+            new Notice("Already in this routine.");
+            break;
+          }
+          list.push({ name: val });
+          const custom = { ...(settings.customRoutines || {}) };
+          custom[editingRoutine] = list;
+          await saveSettings({ customRoutines: custom });
+          renderSettingsView();
+          break;
+        }
+        case "rt-remove-ex": {
+          const i = parseInt(btn.dataset.i);
+          if (isNaN(i) || editingRoutine === null) break;
+          const list = SomaIntelligenceEngine.normalizeRoutine(routines()[editingRoutine] || []);
+          list.splice(i, 1);
+          const custom = { ...(settings.customRoutines || {}) };
+          custom[editingRoutine] = list;
+          await saveSettings({ customRoutines: custom });
+          renderSettingsView();
+          break;
+        }
+        case "rt-move": {
+          const i = parseInt(btn.dataset.i);
+          const dir = parseInt(btn.dataset.dir);
+          if (isNaN(i) || isNaN(dir) || editingRoutine === null) break;
+          const list = SomaIntelligenceEngine.normalizeRoutine(routines()[editingRoutine] || []);
+          const j = i + dir;
+          if (j < 0 || j >= list.length) break;
+          [list[i], list[j]] = [list[j], list[i]];
+          const custom = { ...(settings.customRoutines || {}) };
+          custom[editingRoutine] = list;
+          await saveSettings({ customRoutines: custom });
+          renderSettingsView();
+          break;
+        }
+        case "rt-save": {
+          if (editingRoutine === null) break;
+          const raw = paneSettings?.querySelector("#rt-name")?.value;
+          const all = routines();
+          const check = SomaIntelligenceEngine.validateRoutineName(raw, all, editingRoutine);
+          if (!check.ok) { new Notice(check.error); break; }
+
+          const list = SomaIntelligenceEngine.normalizeRoutine(all[editingRoutine] || []);
+          const custom = { ...(settings.customRoutines || {}) };
+          if (check.name !== editingRoutine) {
+            delete custom[editingRoutine];
+            if (Object.prototype.hasOwnProperty.call(ROUTINE_PRESETS, editingRoutine)) {
+              custom._removed = [...new Set([...(custom._removed || []), editingRoutine])];
+            }
+          }
+          custom[check.name] = list;
+          await saveSettings({ customRoutines: custom });
+          editingRoutine = null;
+          new Notice("Saved \"" + check.name + "\" (" + list.length + " exercises).");
+          renderSettingsView();
+          break;
+        }
+        case "set-theme": {
+          settings.theme = btn.dataset.theme || "dark";
+          await saveSettings({ theme: settings.theme });
+          applySomaTheme(root, settings);
+          renderSettingsView();
+          break;
+        }
+        case "set-accent": {
+          settings.accent = normalizeAccent(btn.dataset.color);
+          await saveSettings({ accent: settings.accent });
+          applySomaTheme(root, settings);
+          renderSettingsView();
           break;
         }
         case "save-settings-full": {
@@ -3358,8 +3176,9 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           const elapsedMinutes = Math.max(1, Math.round(elapsed / 60));
 
           const muscleHits = {};
+          let blankDoneSets = 0;
           for (const ex of state.sessionExercises) {
-            const doneSets = ex.sets.filter(s => s.done);
+            const doneSets = ex.sets.filter(s => s.done && s.type !== "warmup");
             if (doneSets.length > 0 && ex.targetKeys) {
               const avgFail = doneSets.reduce((acc, s) => acc + (parseFloat(s.failure) || 3), 0) / doneSets.length;
               for (const k of ex.targetKeys) {
@@ -3370,11 +3189,16 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               }
             }
             for (const s of ex.sets) {
-              const defaultW = ex.isBW ? 0 : (ex.usesBar ? (ex.barWeight || settings.barWeight) : 80);
-              const w = (s.weight !== undefined && s.weight !== "") ? getTotalWeight(ex, s) : (s.done ? defaultW : 0);
-              const r = parseFloat(s.reps) || (s.done ? 8 : 0);
+              // A blank field means nothing was logged. Inventing 80kg x 8
+              // here is what made past sessions report volume for sets that
+              // recorded nothing at all.
+              const hasWeight = s.weight !== undefined && s.weight !== "" && !isNaN(parseFloat(s.weight));
+              const hasReps = s.reps !== undefined && s.reps !== "" && !isNaN(parseFloat(s.reps));
+              if (s.done && (!hasWeight || !hasReps) && !(ex.isBW && hasReps)) blankDoneSets++;
+              const w = hasWeight ? getTotalWeight(ex, s) : (ex.isBW ? 0 : 0);
+              const r = hasReps ? parseFloat(s.reps) : 0;
               const failVal = s.failure || "3";
-              if (s.done) {
+              if (s.done && s.type !== "warmup") {
                 totalSets++;
                 const vol = SomaIntelligenceEngine.calculateWorkVolume(w, r, ex.isBW);
                 totalVol += vol;
@@ -3401,11 +3225,16 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             totalVol,
             axialVol: axialVolume,
             totalSets,
+            blankDoneSets,
             muscles: finalMuscles,
             exercises: state.sessionExercises
           };
 
-          await saveWorkoutHistory(recapData);
+          const saved = await saveWorkoutHistory(recapData);
+          // Nothing was logged — stay on the tracker rather than showing a
+          // recap for a session that was never written, and leave the note's
+          // frontmatter untouched.
+          if (!saved) break;
 
           if (sourcePath) {
             const currentFile = this.app.vault.getAbstractFileByPath(sourcePath);
@@ -3436,7 +3265,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         }
         case "reset-session": {
           delete history[noteDateKey];
-          await this.writeVaultJson(HISTORY_FILE_PATH, history);
+          await this.writeHistory(history);
           state.sessionExercises = [];
           state.sessionStartTime = Date.now();
           initWorkoutView();
@@ -3450,8 +3279,16 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       }
     };
 
-    appEl.oninput = (e) => {
+    appEl.oninput = async (e) => {
       const target = e.target;
+      // Live accent preview: the colour applies as you drag the picker and is
+      // persisted straight away, so there is no separate save step.
+      if (target.id === "cfg-accent-custom") {
+        settings.accent = normalizeAccent(target.value);
+        applySomaTheme(root, settings);
+        await saveSettings({ accent: settings.accent });
+        return;
+      }
       if (target.classList.contains("set-weight")) {
         const exObj = state.sessionExercises[target.dataset.ex];
         const setObj = exObj.sets[target.dataset.set];
@@ -3470,6 +3307,11 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
     appEl.onchange = (e) => {
       const target = e.target;
+      if (target.id === "chart-ex-select") {
+        chartExercise = target.value;
+        renderStrengthChart(paneInsights && paneInsights.querySelector("#insights-strength"));
+        return;
+      }
       if (target.classList.contains("set-bar-select")) {
         const exObj = state.sessionExercises[target.dataset.ex];
         const preset = (BAR_PRESETS[settings.unit] || BAR_PRESETS.kg).find(p => p.id === target.value);
@@ -3494,7 +3336,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         }
 
         if (isDone) {
-          const prIntel = SomaIntelligenceEngine.detectPersonalRecords(history, curEx.name, getTotalWeight(curEx, curSet), curSet.reps);
+          // A warm-up is not a performance, so it can never be a PR.
+          const prIntel = curSet.type === "warmup"
+            ? null
+            : SomaIntelligenceEngine.detectPersonalRecords(history, curEx.name, getTotalWeight(curEx, curSet), curSet.reps);
           if (prIntel) {
             if (settings.sound) SomaAudioCelebration.playSound("pr");
             if (settings.confetti) SomaAudioCelebration.triggerConfetti(appEl);
@@ -3502,7 +3347,23 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           } else if (settings.sound) {
             SomaAudioCelebration.playSound("chime");
           }
-          if (settings.autoRest) startRestTimer(settings.restDefault);
+
+          // Rest length now depends on what kind of set you just finished and
+          // whether the exercise is mid-superset, instead of always running
+          // the same default.
+          if (settings.autoRest) {
+            const plan = SomaIntelligenceEngine.restForSet(
+              curEx, curSet, state.sessionExercises, settings
+            );
+            if (plan.seconds > 0) {
+              startRestTimer(plan.seconds);
+            } else {
+              // Zero rest: skip the timer entirely and point at the partner.
+              this.untrackInterval(restTimerInterval);
+              updateRestTimerUI();
+            }
+            if (plan.reason) new Notice(plan.reason);
+          }
         }
         updateStats();
       }
@@ -3521,10 +3382,15 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       }
     };
 
-    initWorkoutView();
-    if (history && history[noteDateKey]) {
-      renderFinishedScreen(history[noteDateKey]);
+    // Only the profiles that actually show the tracker need it built.
+    if (paneWorkout) {
+      initWorkoutView();
+      if (history && history[noteDateKey]) {
+        renderFinishedScreen(history[noteDateKey]);
+      }
     }
+    // Whatever tab this profile opens on still has to be rendered.
+    if (firstPane !== "pane-workout") switchDockTab(firstPane);
   }
 
   // ==========================================================================
@@ -3532,15 +3398,16 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   // ==========================================================================
   async mountTracker(containerEl, sourcePath) {
     const root = containerEl.createDiv({ cls: "ntr-root-container" });
+    applySomaTheme(root, await this.readVaultJson(SETTINGS_FILE_PATH, {}));
 
     const fileName = sourcePath ? sourcePath.split("/").pop() : "";
     const dateMatch = fileName ? fileName.match(/\d{4}-\d{2}-\d{2}/) : null;
     const noteDateKey = dateMatch ? dateMatch[0] : getLocalDateKey(new Date());
 
-    let nutritionDB = await this.readVaultJson(NUTRITION_FILE_PATH, {});
+    let nutritionDB = await this.readNutrition({});
     this.ensureNutritionSettings(nutritionDB);
     let customFoods = await this.readVaultJson(CUSTOM_FOODS_FILE, []);
-    let historyDB = await this.readVaultJson(HISTORY_FILE_PATH, {});
+    let historyDB = await this.readHistory();
 
     const todayWorkout = historyDB[noteDateKey] || {};
     const exerciseCaloriesBurned = todayWorkout.caloriesBurned || 0;
@@ -3633,7 +3500,13 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
                const remCarbs = dayData.goals.carbs - totalCarbs;
 
       const currentWeight = parseFloat(dayData.bodyWeight) || 78.5;
-                const estMaintenanceCals = currentWeight * 32;
+                // Prefer maintenance derived from what actually happened to
+                // intake and bodyweight; fall back to the formula only while
+                // there is not enough logged data to measure it.
+                const tdee = SomaIntelligenceEngine.computeMaintenanceCalories(nutritionDB);
+                const formulaCals = SomaIntelligenceEngine.formulaMaintenance(currentWeight) || Math.round(currentWeight * 32);
+                const measured = tdee && tdee.ok ? tdee.maintenance : null;
+                const estMaintenanceCals = measured !== null ? measured : formulaCals;
                 const dailySurplus = dayData.goals.cals - estMaintenanceCals;
                 const monthlyKcalDelta = dailySurplus * 30;
                 const estFatDeltaKg = (monthlyKcalDelta / 7700).toFixed(2);
@@ -3683,8 +3556,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           return `
             <div class="ntr-row-item" data-idx="${globalIdx}">
               <div>
-                <div style="font-weight: 700; color: #f4f4f5;">${item.name}</div>
-                <div style="font-size:0.68rem; color:#71717a;">${item.serving || "100 g"}</div>
+                <div style="font-weight: 700; color: var(--soma-text);">${item.name}</div>
+                <div style="font-size:0.68rem; color:var(--soma-text-faint);">${item.serving || "100 g"}</div>
               </div>
               <div class="col-cals">${item.cals.toFixed(0)} kcal</div>
               <div class="col-prot">${item.p.toFixed(1)}g</div>
@@ -3717,8 +3590,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       });
 
       const microsList = [
-        { name: "Fiber", cur: totalFiber, goal: dayData.goals.fiber || 35, unit: "g", color: "#10b981" },
-        { name: "Calcium", cur: totalCalcium, goal: dayData.goals.calcium || 1000, unit: "mg", color: "#38bdf8" },
+        { name: "Fiber", cur: totalFiber, goal: dayData.goals.fiber || 35, unit: "g", color: "var(--soma-accent)" },
+        { name: "Calcium", cur: totalCalcium, goal: dayData.goals.calcium || 1000, unit: "mg", color: "var(--soma-info)" },
         { name: "Iron", cur: totalIron, goal: dayData.goals.iron || 18, unit: "mg", color: "#f87171" },
         { name: "Magnesium", cur: totalMagnesium, goal: dayData.goals.magnesium || 400, unit: "mg", color: "#a855f7" },
         { name: "Potassium", cur: totalPotassium, goal: dayData.goals.potassium || 3500, unit: "mg", color: "#fb923c" },
@@ -3736,13 +3609,13 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         return `
           <div class="ntr-micro-card">
             <div class="ntr-micro-head">
-              <span style="color:#a1a1aa;">${m.name}</span>
+              <span style="color:var(--soma-text-dim);">${m.name}</span>
               <span style="color:${m.color};">${m.cur.toFixed(0)} / ${m.goal}${m.unit}</span>
             </div>
             <div class="ntr-micro-bar-bg"><div class="ntr-micro-bar-fill" style="width:${pct}%; background:${m.color};"></div></div>
-            <div style="font-size:0.63rem; font-weight:700; color:#71717a; margin-top:3px; display:flex; justify-content:space-between;">
+            <div style="font-size:0.63rem; font-weight:700; color:var(--soma-text-faint); margin-top:3px; display:flex; justify-content:space-between;">
               <span>${pct}%</span>
-              <span style="color:${left < 0 && m.isLimit ? '#ef4444' : '#a1a1aa'};">${subText}</span>
+              <span style="color:${left < 0 && m.isLimit ? 'var(--soma-danger)' : 'var(--soma-text-dim)'};">${subText}</span>
             </div>
           </div>
         `;
@@ -3752,16 +3625,16 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         <div class="ntr-goals-widget">
           <div class="ntr-goals-info">
             <span class="ntr-goals-title">🎯 Targets</span>
-            <span class="ntr-goal-pill" style="color:#f59e0b;"><b style="color:#fff;">${dayData.goals.cals}</b> kcal ${exerciseCaloriesBurned > 0 ? `<span style="font-size:0.65rem; color:#34d399;">(+${exerciseCaloriesBurned})</span>` : ''}</span>
-            <span class="ntr-goal-pill" style="color:#10b981;">P: <b style="color:#fff;">${dayData.goals.protein}g</b></span>
-            <span class="ntr-goal-pill" style="color:#ef4444;">F: <b style="color:#fff;">${dayData.goals.fat}g</b></span>
-            <span class="ntr-goal-pill" style="color:#0ea5e9;">C: <b style="color:#fff;">${dayData.goals.carbs}g</b></span>
+            <span class="ntr-goal-pill" style="color:var(--soma-warn);"><b style="color:var(--soma-text);">${dayData.goals.cals}</b> kcal ${exerciseCaloriesBurned > 0 ? `<span style="font-size:0.65rem; color:#34d399;">(+${exerciseCaloriesBurned})</span>` : ''}</span>
+            <span class="ntr-goal-pill" style="color:var(--soma-accent-text);">P: <b style="color:var(--soma-text);">${dayData.goals.protein}g</b></span>
+            <span class="ntr-goal-pill" style="color:var(--soma-danger);">F: <b style="color:var(--soma-text);">${dayData.goals.fat}g</b></span>
+            <span class="ntr-goal-pill" style="color:#0ea5e9;">C: <b style="color:var(--soma-text);">${dayData.goals.carbs}g</b></span>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <div style="display:flex; align-items:center; gap:6px; background:#202023; padding:6px 10px; border-radius:8px; border:1px solid #2e2e32; min-height:34px;">
-              <span style="font-size:0.68rem; color:#a1a1aa; font-weight:700;">⚖️ Log Weight:</span>
-              <input type="number" step="0.1" id="inp-scale-weight" value="${currentWeight}" style="width:60px; background:transparent; border:none; color:#fff; font-weight:800; font-size:0.9rem; outline:none; text-align:right; padding:4px 0;" />
-              <span style="font-size:0.68rem; color:#71717a;">kg</span>
+            <div style="display:flex; align-items:center; gap:6px; background:var(--soma-surface-2); padding:6px 10px; border-radius:8px; border:1px solid var(--soma-surface-3); min-height:34px;">
+              <span style="font-size:0.68rem; color:var(--soma-text-dim); font-weight:700;">⚖️ Log Weight:</span>
+              <input type="number" step="0.1" id="inp-scale-weight" value="${currentWeight}" style="width:60px; background:transparent; border:none; color:var(--soma-text); font-weight:800; font-size:0.9rem; outline:none; text-align:right; padding:4px 0;" />
+              <span style="font-size:0.68rem; color:var(--soma-text-faint);">kg</span>
             </div>
             <button class="ntr-btn-edit-goals ntr-btn" id="btn-open-goals-modal">⚙️ Targets</button>
           </div>
@@ -3782,7 +3655,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             </div>
             <span class="ntr-mfp-sym">−</span>
             <div class="ntr-mfp-unit">
-              <div class="ntr-mfp-num" style="color:#f59e0b;">${Math.round(totalCals)}</div>
+              <div class="ntr-mfp-num" style="color:var(--soma-warn);">${Math.round(totalCals)}</div>
               <div class="ntr-mfp-sub">Food</div>
             </div>
             <span class="ntr-mfp-sym">+</span>
@@ -3793,37 +3666,46 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             <span class="ntr-mfp-sym">=</span>
           </div>
           <div class="ntr-mfp-rem-box">
-            <div class="ntr-mfp-rem-val" style="color:${remCals >= 0 ? '#34d399' : '#ef4444'};">
+            <div class="ntr-mfp-rem-val" style="color:${remCals >= 0 ? '#34d399' : 'var(--soma-danger)'};">
               ${remCals >= 0 ? remCals.toFixed(0) : `+${Math.abs(remCals).toFixed(0)}`}
             </div>
-            <div class="ntr-mfp-sub" style="font-weight:700; color:${remCals >= 0 ? '#34d399' : '#ef4444'};">
+            <div class="ntr-mfp-sub" style="font-weight:700; color:${remCals >= 0 ? '#34d399' : 'var(--soma-danger)'};">
               ${remCals >= 0 ? 'Remaining' : 'Over Limit'}
             </div>
           </div>
         </div>
 
         <div class="ntr-stacked-bar-container">
-          <div style="display:flex; justify-content:space-between; font-size:0.72rem; font-weight:700; color:#71717a;">
+          <div style="display:flex; justify-content:space-between; font-size:0.72rem; font-weight:700; color:var(--soma-text-faint);">
             <span>Macro Calorie Distribution</span>
             <span style="color:#d4d4d8;">${totalCals.toFixed(0)} / ${effectiveGoalCals} kcal</span>
           </div>
           <div class="ntr-stacked-bar-track">
-            <div class="ntr-stack-seg" style="width:${Math.min(100, pBarW)}%; background:#10b981;" title="Protein (${pRatio}%)"></div>
-            <div class="ntr-stack-seg" style="width:${Math.min(100 - pBarW, fBarW)}%; background:#ef4444;" title="Fat (${fRatio}%)"></div>
+            <div class="ntr-stack-seg" style="width:${Math.min(100, pBarW)}%; background:var(--soma-accent);" title="Protein (${pRatio}%)"></div>
+            <div class="ntr-stack-seg" style="width:${Math.min(100 - pBarW, fBarW)}%; background:var(--soma-danger);" title="Fat (${fRatio}%)"></div>
             <div class="ntr-stack-seg" style="width:${Math.min(100 - pBarW - fBarW, cBarW)}%; background:#0ea5e9;" title="Carbs (${cRatio}%)"></div>
             ${isOverCals ? `<div class="ntr-stack-seg ntr-stack-over" style="width:100%;" title="Over Target"></div>` : ''}
           </div>
         </div>
 
-        <details style="background:#18181b; padding:10px 14px; border-radius:10px; border:1px solid #27272a; cursor:pointer;">
-          <summary style="font-weight:800; font-size:0.78rem; color:#a1a1aa;">
+        <details style="background:var(--soma-surface); padding:10px 14px; border-radius:10px; border:1px solid var(--soma-border); cursor:pointer;">
+          <summary style="font-weight:800; font-size:0.78rem; color:var(--soma-text-dim);">
             🔮 30-Day Recomposition Forecast (Click to expand)
           </summary>
-          <div style="margin-top:10px; font-size:0.76rem; display:grid; grid-template-columns: 1fr 1fr; gap:6px; color:#cbd5e1;">
-            <div>• Est. Fat Change: <b style="color:${estFatDeltaKg <= 0 ? '#10b981' : '#f59e0b'};">${estFatDeltaKg > 0 ? '+' : ''}${estFatDeltaKg} kg</b></div>
-            <div>• Est. Lean Mass: <b style="color:#10b981;">+${estMuscleGainKg} kg</b></div>
-            <div style="grid-column: span 2; margin-top:6px; padding-top:6px; border-top:1px dashed #27272a;">
-              🎯 <b>Target Weight in 30 Days:</b> <span style="color:#38bdf8; font-weight:900;">${projectedWeight} kg</span>
+          <div style="margin-top:10px; font-size:0.76rem; display:grid; grid-template-columns: 1fr 1fr; gap:6px; color:var(--soma-text-dim);">
+            <div>• Est. Fat Change: <b style="color:${estFatDeltaKg <= 0 ? 'var(--soma-accent-text)' : 'var(--soma-warn)'};">${estFatDeltaKg > 0 ? '+' : ''}${estFatDeltaKg} kg</b></div>
+            <div>• Est. Lean Mass: <b style="color:var(--soma-accent-text);">+${estMuscleGainKg} kg</b></div>
+            <div style="grid-column: span 2; margin-top:6px; padding-top:6px; border-top:1px dashed var(--soma-border);">
+              🎯 <b>Target Weight in 30 Days:</b> <span style="color:var(--soma-info); font-weight:900;">${projectedWeight} kg</span>
+            </div>
+            <div style="grid-column: span 2; margin-top:8px; padding-top:8px; border-top:1px dashed var(--soma-border); font-size:0.72rem;">
+              ${(measured !== null
+                ? `<div style="display:flex; justify-content:space-between;"><span>🔬 <b>Your measured maintenance</b></span><b style="color:var(--soma-accent-text);">${measured} kcal</b></div>
+                   <div style="display:flex; justify-content:space-between; color:var(--soma-text-faint);"><span>Formula guess (bodyweight x 32)</span><span>${formulaCals} kcal</span></div>
+                   <div style="color:var(--soma-text-faint); margin-top:4px; line-height:1.45;">From ${tdee.foodDays} logged days over ${tdee.days} days: averaged <b>${tdee.avgIntake}</b> kcal while weight went <b>${tdee.weightDelta > 0 ? "+" : ""}${tdee.weightDelta} kg</b>. Confidence: <b>${tdee.confidence}</b>.</div>`
+                : `<div style="display:flex; justify-content:space-between;"><span>📐 Maintenance (formula estimate)</span><b>${formulaCals} kcal</b></div>
+                   <div style="color:var(--soma-text-faint); margin-top:4px; line-height:1.45;">${(tdee && tdee.reason) ? tdee.reason : "Log weight and food for a couple of weeks and this becomes a measurement instead of a guess."}</div>`
+              )}
             </div>
           </div>
         </details>
@@ -3832,12 +3714,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           <div class="ntr-water-top">
             <div class="ntr-water-label">
               <span>💧 Hydration</span>
-              <b style="color:#ffffff;">${currentWater}</b> / ${waterTarget} ml
+              <b style="color:var(--soma-text);">${currentWater}</b> / ${waterTarget} ml
             </div>
             <div style="display:flex; gap:6px;">
               <button class="ntr-btn-water ntr-btn" id="w-plus-250">+250ml</button>
               <button class="ntr-btn-water ntr-btn" id="w-plus-500">+500ml</button>
-              <button class="ntr-btn-water ntr-btn" id="w-reset" style="background:#18181b; border-color:#27272a; color:#71717a;">↺</button>
+              <button class="ntr-btn-water ntr-btn" id="w-reset" style="background:var(--soma-surface); border-color:var(--soma-border); color:var(--soma-text-faint);">↺</button>
             </div>
           </div>
           <div class="ntr-water-nodes-row">${waterNodesHtml}</div>
@@ -3857,10 +3739,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
                 <div class="ntr-tile-accent acc-cals"></div>
                 <div class="ntr-tile-top">
                   <span class="ntr-tile-lbl">Calories</span>
-                  <span class="ntr-tile-pct" style="color:#f59e0b;">${calsPct}%</span>
+                  <span class="ntr-tile-pct" style="color:var(--soma-warn);">${calsPct}%</span>
                 </div>
-                <div class="ntr-tile-val">${totalCals.toFixed(0)} <span style="font-size:0.62rem; color:#71717a;">kcal</span></div>
-                <div class="ntr-tile-sub" style="color:${remCals >= 0 ? '#34d399' : '#ef4444'};">
+                <div class="ntr-tile-val">${totalCals.toFixed(0)} <span style="font-size:0.62rem; color:var(--soma-text-faint);">kcal</span></div>
+                <div class="ntr-tile-sub" style="color:${remCals >= 0 ? '#34d399' : 'var(--soma-danger)'};">
                   ${remCals >= 0 ? `${remCals.toFixed(0)} left` : `+${Math.abs(remCals).toFixed(0)} over`}
                 </div>
                 <div class="ntr-tile-bar-bg"><div class="ntr-tile-bar-fill acc-cals" style="width: ${calsPct}%;"></div></div>
@@ -3870,10 +3752,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
                 <div class="ntr-tile-accent acc-prot"></div>
                 <div class="ntr-tile-top">
                   <span class="ntr-tile-lbl">Protein</span>
-                  <span class="ntr-tile-pct" style="color:#10b981;">${protPct}%</span>
+                  <span class="ntr-tile-pct" style="color:var(--soma-accent-text);">${protPct}%</span>
                 </div>
-                <div class="ntr-tile-val">${totalProtein.toFixed(0)} <span style="font-size:0.62rem; color:#71717a;">/ ${dayData.goals.protein}g</span></div>
-                <div class="ntr-tile-sub" style="color:${remProtein > 0 ? '#71717a' : '#10b981'};">
+                <div class="ntr-tile-val">${totalProtein.toFixed(0)} <span style="font-size:0.62rem; color:var(--soma-text-faint);">/ ${dayData.goals.protein}g</span></div>
+                <div class="ntr-tile-sub" style="color:${remProtein > 0 ? 'var(--soma-text-faint)' : 'var(--soma-accent-text)'};">
                   ${remProtein > 0 ? `${remProtein.toFixed(0)}g left` : `Goal Met`}
                 </div>
                 <div class="ntr-tile-bar-bg"><div class="ntr-tile-bar-fill acc-prot" style="width: ${protPct}%;"></div></div>
@@ -3883,10 +3765,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
                 <div class="ntr-tile-accent acc-fat"></div>
                 <div class="ntr-tile-top">
                   <span class="ntr-tile-lbl">Fat</span>
-                  <span class="ntr-tile-pct" style="color:#ef4444;">${fatPct}%</span>
+                  <span class="ntr-tile-pct" style="color:var(--soma-danger);">${fatPct}%</span>
                 </div>
-                <div class="ntr-tile-val">${totalFat.toFixed(0)} <span style="font-size:0.62rem; color:#71717a;">/ ${dayData.goals.fat}g</span></div>
-                <div class="ntr-tile-sub" style="color:${remFat >= 0 ? '#71717a' : '#ef4444'};">
+                <div class="ntr-tile-val">${totalFat.toFixed(0)} <span style="font-size:0.62rem; color:var(--soma-text-faint);">/ ${dayData.goals.fat}g</span></div>
+                <div class="ntr-tile-sub" style="color:${remFat >= 0 ? 'var(--soma-text-faint)' : 'var(--soma-danger)'};">
                   ${remFat >= 0 ? `${remFat.toFixed(0)}g left` : `+${Math.abs(remFat).toFixed(0)}g over`}
                 </div>
                 <div class="ntr-tile-bar-bg"><div class="ntr-tile-bar-fill acc-fat" style="width: ${fatPct}%;"></div></div>
@@ -3898,8 +3780,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
                   <span class="ntr-tile-lbl">Carbs</span>
                   <span class="ntr-tile-pct" style="color:#0ea5e9;">${carbsPct}%</span>
                 </div>
-                <div class="ntr-tile-val">${totalCarbs.toFixed(0)} <span style="font-size:0.62rem; color:#71717a;">/ ${dayData.goals.carbs}g</span></div>
-                <div class="ntr-tile-sub" style="color:${remCarbs >= 0 ? '#71717a' : '#ef4444'};">
+                <div class="ntr-tile-val">${totalCarbs.toFixed(0)} <span style="font-size:0.62rem; color:var(--soma-text-faint);">/ ${dayData.goals.carbs}g</span></div>
+                <div class="ntr-tile-sub" style="color:${remCarbs >= 0 ? 'var(--soma-text-faint)' : 'var(--soma-danger)'};">
                   ${remCarbs >= 0 ? `${remCarbs.toFixed(0)}g left` : `+${Math.abs(remCarbs).toFixed(0)}g over`}
                 </div>
                 <div class="ntr-tile-bar-bg"><div class="ntr-tile-bar-fill acc-carb" style="width: ${carbsPct}%;"></div></div>
@@ -3944,7 +3826,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         <div class="ntr-modal-overlay" id="goals-modal">
           <div class="ntr-modal-box">
             <div class="ntr-modal-title"><span>🎯 Edit Daily Targets</span><button class="ntr-del-btn" id="btn-close-goals-x">✕</button></div>
-            <div style="font-size:0.72rem; font-weight:700; color:#38bdf8; text-transform:uppercase; margin-bottom:6px;">Macronutrients & Water</div>
+            <div style="font-size:0.72rem; font-weight:700; color:var(--soma-info); text-transform:uppercase; margin-bottom:6px;">Macronutrients & Water</div>
             <div class="ntr-macro-input-grid">
               <div><div class="ntr-mini-lbl">Calories</div><input type="number" class="ntr-mini-inp" id="inp-goal-cals" value="${dayData.goals.cals}" /></div>
               <div><div class="ntr-mini-lbl">Protein (g)</div><input type="number" class="ntr-mini-inp" id="inp-goal-p" value="${dayData.goals.protein}" /></div>
@@ -3962,12 +3844,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               <div><div class="ntr-mini-lbl">Sodium Limit (mg)</div><input type="number" class="ntr-mini-inp" id="inp-goal-sodium" value="${dayData.goals.sodium || 2300}" /></div>
               <div><div class="ntr-mini-lbl">Zinc (mg)</div><input type="number" class="ntr-mini-inp" id="inp-goal-zinc" value="${dayData.goals.zinc || 11}" /></div>
             </div>
-            <label style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:#a1a1aa; margin-bottom:14px; cursor:pointer;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:var(--soma-text-dim); margin-bottom:14px; cursor:pointer;">
               <input type="checkbox" id="chk-save-default-goals" checked /> Set as default for all future days
             </label>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
-              <button id="btn-close-goals-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Cancel</button>
-              <button id="btn-save-goals" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:#fff; border-radius:6px; font-weight:700;">Save Targets</button>
+              <button id="btn-close-goals-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Cancel</button>
+              <button id="btn-save-goals" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:var(--soma-text); border-radius:6px; font-weight:700;">Save Targets</button>
             </div>
           </div>
         </div>
@@ -4006,8 +3888,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               <div><div class="ntr-mini-lbl">Carbs (g)</div><input type="number" class="ntr-mini-inp" id="ntr-in-c" placeholder="0" /></div>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
-              <button id="btn-close-ntr-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Cancel</button>
-              <button id="btn-save-ntr-food" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:#fff; border-radius:6px; font-weight:700;">+ Log Item</button>
+              <button id="btn-close-ntr-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Cancel</button>
+              <button id="btn-save-ntr-food" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:var(--soma-text); border-radius:6px; font-weight:700;">+ Log Item</button>
             </div>
           </div>
         </div>
@@ -4035,8 +3917,8 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             <div style="display:flex; justify-content:space-between; gap:8px; margin-top:8px;">
               <button id="btn-delete-active-row" class="ntr-btn" style="padding:8px 12px; background:#450a0a; border:1px solid #7f1d1d; color:#fca5a5; border-radius:6px; font-weight:700;">🗑️ Delete</button>
               <div style="display:flex; gap:8px;">
-                <button id="btn-close-edit-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Cancel</button>
-                <button id="btn-save-edited-row" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:#fff; border-radius:6px; font-weight:700;">Save</button>
+                <button id="btn-close-edit-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Cancel</button>
+                <button id="btn-save-edited-row" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:var(--soma-text); border-radius:6px; font-weight:700;">Save</button>
               </div>
             </div>
           </div>
@@ -4047,11 +3929,11 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             <div class="ntr-modal-title"><span>📚 Food Library</span><button class="ntr-del-btn" id="btn-close-lib-x">✕</button></div>
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
               <input type="text" class="ntr-modal-input" id="lib-filter-input" placeholder="Search library..." style="margin-bottom:0;" />
-              <button id="btn-lib-create-new" class="ntr-btn" style="background:#27272a; border:1px solid #3f3f46; color:#fff; border-radius:6px; padding:0 12px; font-weight:700; font-size:0.75rem; height:38px; white-space:nowrap;">+ New</button>
+              <button id="btn-lib-create-new" class="ntr-btn" style="background:var(--soma-border); border:1px solid #3f3f46; color:var(--soma-text); border-radius:6px; padding:0 12px; font-weight:700; font-size:0.75rem; height:38px; white-space:nowrap;">+ New</button>
             </div>
             <div class="ntr-search-results" id="lib-foods-list" style="max-height:260px;"></div>
             <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-              <button id="btn-close-lib-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Close</button>
+              <button id="btn-close-lib-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Close</button>
             </div>
           </div>
         </div>
@@ -4070,12 +3952,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               <div><div class="ntr-mini-lbl">Fat (g)</div><input type="number" class="ntr-mini-inp" id="cf-f" placeholder="2" /></div>
               <div><div class="ntr-mini-lbl">Carbs (g)</div><input type="number" class="ntr-mini-inp" id="cf-c" placeholder="15" /></div>
             </div>
-            <label style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:#a1a1aa; margin-bottom:12px; cursor:pointer;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:var(--soma-text-dim); margin-bottom:12px; cursor:pointer;">
               <input type="checkbox" id="cf-auto-log" checked /> Log to diary today
             </label>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
-              <button id="btn-close-cf-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Cancel</button>
-              <button id="btn-save-permanent-cf" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:#fff; border-radius:6px; font-weight:700;">Save Food</button>
+              <button id="btn-close-cf-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Cancel</button>
+              <button id="btn-save-permanent-cf" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:var(--soma-text); border-radius:6px; font-weight:700;">Save Food</button>
             </div>
           </div>
         </div>
@@ -4088,20 +3970,20 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               <select class="ntr-modal-input" id="mb-select-food" style="margin-bottom:0;"></select>
               <input type="number" class="ntr-modal-input" id="mb-add-qty" placeholder="Grams" value="100" style="margin-bottom:0;" />
             </div>
-            <button id="btn-mb-add-item" class="ntr-btn" style="width:100%; background:#18181b; color:#cbd5e1; border:1px solid #27272a; border-radius:6px; padding:7px; font-weight:700; font-size:0.74rem; margin-bottom:10px;">+ Add Ingredient</button>
-            <div id="mb-ingredients-list" style="max-height:120px; overflow-y:auto; margin-bottom:10px; border:1px solid #27272a; border-radius:6px; padding:6px; background:#18181b;"></div>
-            <div style="background:#18181b; border:1px solid #27272a; border-radius:6px; padding:8px 10px; margin-bottom:12px;">
-              <div style="font-size:0.68rem; font-weight:700; color:#71717a; margin-bottom:4px;">COMBINED TOTALS</div>
+            <button id="btn-mb-add-item" class="ntr-btn" style="width:100%; background:var(--soma-surface); color:var(--soma-text-dim); border:1px solid var(--soma-border); border-radius:6px; padding:7px; font-weight:700; font-size:0.74rem; margin-bottom:10px;">+ Add Ingredient</button>
+            <div id="mb-ingredients-list" style="max-height:120px; overflow-y:auto; margin-bottom:10px; border:1px solid var(--soma-border); border-radius:6px; padding:6px; background:var(--soma-surface);"></div>
+            <div style="background:var(--soma-surface); border:1px solid var(--soma-border); border-radius:6px; padding:8px 10px; margin-bottom:12px;">
+              <div style="font-size:0.68rem; font-weight:700; color:var(--soma-text-faint); margin-bottom:4px;">COMBINED TOTALS</div>
               <div id="mb-totals-display" style="display:flex; justify-content:space-between; font-size:0.78rem; font-weight:800;">
-                <span style="color:#f59e0b;">0 kcal</span>
-                <span style="color:#10b981;">P: 0g</span>
-                <span style="color:#ef4444;">F: 0g</span>
+                <span style="color:var(--soma-warn);">0 kcal</span>
+                <span style="color:var(--soma-accent-text);">P: 0g</span>
+                <span style="color:var(--soma-danger);">F: 0g</span>
                 <span style="color:#0ea5e9;">C: 0g</span>
               </div>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
-              <button id="btn-close-mb-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Cancel</button>
-              <button id="btn-mb-log-meal" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:#fff; border-radius:6px; font-weight:700;">Log Meal</button>
+              <button id="btn-close-mb-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Cancel</button>
+              <button id="btn-mb-log-meal" class="ntr-btn" style="padding:8px 16px; background:#2563eb; border:none; color:var(--soma-text); border-radius:6px; font-weight:700;">Log Meal</button>
             </div>
           </div>
         </div>
@@ -4110,18 +3992,18 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           <div class="ntr-modal-box">
             <div class="ntr-modal-title"><span>📷 Barcode Scanner</span><button class="ntr-del-btn" id="btn-close-bc-x">✕</button></div>
             <video id="bc-video" class="ntr-video-feed" playsinline muted></video>
-            <div id="bc-status" style="font-size:0.74rem; color:#38bdf8; text-align:center; margin-bottom:8px; font-weight:700;">Point camera at barcode...</div>
+            <div id="bc-status" style="font-size:0.74rem; color:var(--soma-info); text-align:center; margin-bottom:8px; font-weight:700;">Point camera at barcode...</div>
             <div style="display:flex; gap:6px; margin-bottom:10px;">
               <input type="text" class="ntr-modal-input" id="bc-manual-input" placeholder="Enter barcode number" style="margin-bottom:0;" />
-              <button id="btn-bc-fetch" class="ntr-btn" style="background:#2563eb; color:#fff; border:none; border-radius:6px; padding:0 14px; font-weight:700; font-size:0.75rem;">Lookup</button>
+              <button id="btn-bc-fetch" class="ntr-btn" style="background:#2563eb; color:var(--soma-text); border:none; border-radius:6px; padding:0 14px; font-weight:700; font-size:0.75rem;">Lookup</button>
             </div>
-            <div id="bc-result-preview" style="display:none; background:#18181b; border:1px solid #27272a; border-radius:6px; padding:10px; margin-bottom:10px;">
-              <div id="bc-prod-name" style="font-weight:800; font-size:0.85rem; color:#fff;"></div>
-              <div id="bc-prod-macros" style="font-size:0.75rem; color:#a1a1aa; margin-top:4px;"></div>
-              <button id="btn-bc-use-prod" class="ntr-btn" style="width:100%; background:#059669; color:#fff; border:none; border-radius:6px; padding:8px; font-weight:700; font-size:0.78rem; margin-top:8px;">Add to Library</button>
+            <div id="bc-result-preview" style="display:none; background:var(--soma-surface); border:1px solid var(--soma-border); border-radius:6px; padding:10px; margin-bottom:10px;">
+              <div id="bc-prod-name" style="font-weight:800; font-size:0.85rem; color:var(--soma-text);"></div>
+              <div id="bc-prod-macros" style="font-size:0.75rem; color:var(--soma-text-dim); margin-top:4px;"></div>
+              <button id="btn-bc-use-prod" class="ntr-btn" style="width:100%; background:var(--soma-accent-dim); color:var(--soma-text); border:none; border-radius:6px; padding:8px; font-weight:700; font-size:0.78rem; margin-top:8px;">Add to Library</button>
             </div>
             <div style="display:flex; justify-content:flex-end;">
-              <button id="btn-close-bc-modal" class="ntr-btn" style="padding:8px 14px; background:#18181b; border:1px solid #27272a; color:#fff; border-radius:6px; font-weight:700;">Close</button>
+              <button id="btn-close-bc-modal" class="ntr-btn" style="padding:8px 14px; background:var(--soma-surface); border:1px solid var(--soma-border); color:var(--soma-text); border-radius:6px; font-weight:700;">Close</button>
             </div>
           </div>
         </div>
@@ -4326,11 +4208,11 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         searchRes.innerHTML = filtered.map(f => `
           <div class="ntr-search-item" data-name="${f.name}">
             <div>
-              <div style="font-weight:700; color:#ffffff; font-size:0.8rem;">
-                ${f.name} ${!f.isBase ? '<span style="color:#fde68a; font-size:0.65rem; background:#27272a; padding:1px 4px; border-radius:3px;">Custom</span>' : ''}
-                <span style="color:#71717a; font-size:0.7rem;">(${f.serving} ${f.unit || 'g'})</span>
+              <div style="font-weight:700; color:var(--soma-text); font-size:0.8rem;">
+                ${f.name} ${!f.isBase ? '<span style="color:#fde68a; font-size:0.65rem; background:var(--soma-border); padding:1px 4px; border-radius:3px;">Custom</span>' : ''}
+                <span style="color:var(--soma-text-faint); font-size:0.7rem;">(${f.serving} ${f.unit || 'g'})</span>
               </div>
-              <div style="font-size:0.68rem; color:#a1a1aa;">${f.cals} kcal • P: ${f.p}g | F: ${f.f}g | C: ${f.c}g</div>
+              <div style="font-size:0.68rem; color:var(--soma-text-dim);">${f.cals} kcal • P: ${f.p}g | F: ${f.f}g | C: ${f.c}g</div>
             </div>
           </div>
         `).join("");
@@ -4426,18 +4308,18 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         const filtered = sorted.filter(f => f.name.toLowerCase().includes(q));
 
         if (filtered.length === 0) {
-          libFoodsList.innerHTML = '<div style="padding:10px; color:#71717a; text-align:center; font-size:0.75rem;">No foods found. Click "+ New" to add.</div>';
+          libFoodsList.innerHTML = '<div style="padding:10px; color:var(--soma-text-faint); text-align:center; font-size:0.75rem;">No foods found. Click "+ New" to add.</div>';
           return;
         }
 
         libFoodsList.innerHTML = filtered.map(f => `
           <div class="ntr-search-item lib-item" data-name="${f.name}">
             <div style="flex:1;">
-              <div style="font-weight:700; color:#ffffff; font-size:0.8rem;">
-                ${f.name} ${!f.isBase ? '<span style="color:#fde68a; font-size:0.65rem; background:#202023; padding:1px 5px; border-radius:3px;">Custom</span>' : ''}
-                <span style="color:#71717a; font-size:0.7rem;">(${f.serving} ${f.unit || 'g'})</span>
+              <div style="font-weight:700; color:var(--soma-text); font-size:0.8rem;">
+                ${f.name} ${!f.isBase ? '<span style="color:#fde68a; font-size:0.65rem; background:var(--soma-surface-2); padding:1px 5px; border-radius:3px;">Custom</span>' : ''}
+                <span style="color:var(--soma-text-faint); font-size:0.7rem;">(${f.serving} ${f.unit || 'g'})</span>
               </div>
-              <div style="font-size:0.68rem; color:#a1a1aa;">${f.cals} kcal • P: ${f.p}g | F: ${f.f}g | C: ${f.c}g</div>
+              <div style="font-size:0.68rem; color:var(--soma-text-dim);">${f.cals} kcal • P: ${f.p}g | F: ${f.f}g | C: ${f.c}g</div>
             </div>
             ${!f.isBase ? `<button class="ntr-del-btn btn-del-cf" data-name="${f.name}" title="Delete">✕</button>` : ''}
           </div>
@@ -4535,21 +4417,21 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           totCals += ing.cals; totP += ing.p; totF += ing.f; totC += ing.c;
           return `
             <div class="ntr-row-item" style="grid-template-columns: 2fr 1fr 20px; padding: 4px 0;">
-              <div style="font-size:0.75rem; color:#fff;">${ing.name} <span style="color:#71717a;">(${ing.qty}g)</span></div>
-              <div style="font-size:0.72rem; color:#f59e0b; text-align:right;">${ing.cals.toFixed(0)} kcal</div>
+              <div style="font-size:0.75rem; color:var(--soma-text);">${ing.name} <span style="color:var(--soma-text-faint);">(${ing.qty}g)</span></div>
+              <div style="font-size:0.72rem; color:var(--soma-warn); text-align:right;">${ing.cals.toFixed(0)} kcal</div>
               <button class="ntr-del-btn btn-del-ing" data-idx="${idx}">✕</button>
             </div>
           `;
         }).join("");
 
         if (activeMealIngredients.length === 0) {
-          mbIngList.innerHTML = '<div style="color:#71717a; font-size:0.72rem; text-align:center;">No ingredients added</div>';
+          mbIngList.innerHTML = '<div style="color:var(--soma-text-faint); font-size:0.72rem; text-align:center;">No ingredients added</div>';
         }
 
         mbTotalsDisp.innerHTML = `
-          <span style="color:#f59e0b;">${totCals.toFixed(1)} kcal</span>
-          <span style="color:#10b981;">P: ${totP.toFixed(1)}g</span>
-          <span style="color:#ef4444;">F: ${totF.toFixed(1)}g</span>
+          <span style="color:var(--soma-warn);">${totCals.toFixed(1)} kcal</span>
+          <span style="color:var(--soma-accent-text);">P: ${totP.toFixed(1)}g</span>
+          <span style="color:var(--soma-danger);">F: ${totF.toFixed(1)}g</span>
           <span style="color:#0ea5e9;">C: ${totC.toFixed(1)}g</span>
         `;
 
@@ -4658,10 +4540,17 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
               method: "GET"
             });
             if (!resp || !resp.text) throw new Error("ZXing download returned no content");
-            // Execute the UMD bundle in the global scope so it attaches
-            // itself to window.ZXing, same as a <script> tag would.
-            const runInGlobalScope = new Function(resp.text);
-            runInGlobalScope.call(window);
+            // Execute the UMD bundle so it attaches itself to window.ZXing,
+            // same as a <script> tag would. The three undefined parameters are
+            // load-bearing: Obsidian desktop is Electron with node integration,
+            // so `module` and `exports` exist as GLOBALS. A UMD bundle checks
+            // for those first and, finding them, assigns itself to exports and
+            // never touches window.ZXing — the load silently "succeeds" while
+            // the scanner can never start. Declaring module/exports/define as
+            // parameters shadows the globals with undefined, forcing the UMD
+            // down its browser branch.
+            const runInGlobalScope = new Function("module", "exports", "define", resp.text);
+            runInGlobalScope.call(window, undefined, undefined, undefined);
             if (!window.ZXing) throw new Error("ZXing script ran but did not attach to window.ZXing");
             return window.ZXing;
           })().catch((err) => {
@@ -4780,6 +4669,42 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         bcStatus.textContent = "Not found in any database. Try manual entry below.";
       };
 
+      // The JS decoder path. Used when there's no native BarcodeDetector
+      // (iOS) and as the recovery path when a native detector exists but
+      // keeps failing (some desktop builds register the API without a
+      // working implementation behind it).
+      const startZXingScan = async () => {
+        bcStatus.textContent = "Loading scanner (first time only)...";
+        try {
+          const ZXing = await ensureZXing();
+          zxingReader = new ZXing.BrowserMultiFormatReader();
+          bcStatus.textContent = "Camera active. Center barcode.";
+          // decodeFromStream, NOT decodeFromVideoElement. The latter takes a
+          // single argument in @zxing/library - passing a callback as a second
+          // argument silently does nothing - and it decodes exactly ONCE into a
+          // returned promise rather than watching the stream. That is why the
+          // camera could sit on a centred barcode indefinitely.
+          //
+          // decodeFromStream attaches the stream and decodes continuously,
+          // invoking the callback on every frame. The err argument is a
+          // NotFoundException on frames with no barcode, which is normal.
+          if (!videoStream) throw new Error("camera stream is not available");
+          zxingReader.decodeFromStream(videoStream, bcVideo, async (result, err) => {
+            if (result && typeof result.getText === "function") {
+              const code = result.getText();
+              bcManualInp.value = code;
+              // Stop decoding before the lookup, so one barcode cannot fire
+              // the fetch dozens of times while the camera stays pointed at it.
+              if (zxingReader) { try { zxingReader.reset(); } catch (e) {} zxingReader = null; }
+              await fetchProductByBarcode(code);
+            }
+          });
+        } catch (e) {
+          console.error("[SOMA] Barcode scanner failed to start:", e);
+          bcStatus.textContent = "Scanner unavailable — enter the barcode manually below.";
+        }
+      };
+
       const startCamera = async () => {
         scannedProductData = null;
         bcPreview.style.display = "none";
@@ -4792,38 +4717,34 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
           if ('BarcodeDetector' in window) {
             const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code'] });
+            // A detector that throws on every frame is indistinguishable from
+            // one that simply sees no barcode, so count the failures: a few in
+            // a row means the API is broken here, not that the frame is empty.
+            let consecutiveFailures = 0;
             scanInterval = this.trackInterval(async () => {
               try {
                 const barcodes = await detector.detect(bcVideo);
+                consecutiveFailures = 0;
                 if (barcodes.length > 0) {
                   const code = barcodes[0].rawValue;
                   this.untrackInterval(scanInterval);
                   bcManualInp.value = code;
                   await fetchProductByBarcode(code);
                 }
-              } catch (e) {}
+              } catch (e) {
+                if (++consecutiveFailures >= 5) {
+                  console.warn("[SOMA] Native BarcodeDetector failing, switching to JS decoder:", e);
+                  this.untrackInterval(scanInterval);
+                  startZXingScan();
+                }
+              }
             }, 600);
           } else {
-            // No native scanner API (this is the normal case on iOS) —
-            // fall back to the JS decoder so scanning still works.
-            bcStatus.textContent = "Loading scanner (first time only)...";
-            try {
-              const ZXing = await ensureZXing();
-              zxingReader = new ZXing.BrowserMultiFormatReader();
-              bcStatus.textContent = "Camera active. Center barcode.";
-              zxingReader.decodeFromVideoElement(bcVideo, async (result, err) => {
-                if (result && result.getText) {
-                  const code = result.getText();
-                  bcManualInp.value = code;
-                  if (zxingReader) { try { zxingReader.reset(); } catch (e) {} zxingReader = null; }
-                  await fetchProductByBarcode(code);
-                }
-              });
-            } catch (e) {
-              bcStatus.textContent = "Scanner unavailable (no internet for first-time setup?). Enter barcode manually below.";
-            }
+            // No native scanner API — the normal case on iOS and on Windows.
+            await startZXingScan();
           }
         } catch (e) {
+          console.error("[SOMA] Camera unavailable:", e);
           bcStatus.textContent = "Camera unavailable. Enter barcode manually:";
         }
       };
@@ -4903,9 +4824,10 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   async mountAuditWidget(containerEl, dayWindow = 7, title = "Audit") {
     containerEl.empty();
     const root = containerEl.createDiv({ cls: "soma-audit-root" });
+    applySomaTheme(root, await this.readVaultJson(SETTINGS_FILE_PATH, {}));
 
-    let history = await this.readVaultJson(HISTORY_FILE_PATH, {});
-    let nutritionDB = await this.readVaultJson(NUTRITION_FILE_PATH, {});
+    let history = await this.readHistory();
+    let nutritionDB = await this.readNutrition({});
     let habitStore = new SomaHabitStore(this);
     await habitStore.load();
     const habits = habitStore.settings.habits || [];
@@ -4940,14 +4862,14 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     root.innerHTML = `
       <div class="soma-card">
         <div class="soma-tag-badge">${dayWindow}-Day Review</div>
-        <div style="font-size:1.05rem; font-weight:900; color:#fff; margin:4px 0 10px 0;">📊 ${title}</div>
+        <div style="font-size:1.05rem; font-weight:900; color:var(--soma-text); margin:4px 0 10px 0;">📊 ${title}</div>
         <div class="soma-stats-grid" style="grid-template-columns:repeat(3, 1fr); margin-bottom:10px;">
-          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Active Burn</div><div class="soma-stat-val" style="font-size:1.1rem; color:#f59e0b;">${totalBurn.toLocaleString()} kcal</div></div>
-          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Avg Weight</div><div class="soma-stat-val" style="font-size:1.1rem; color:#38bdf8;">${avgWeight} kg</div></div>
-          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Workouts Logged</div><div class="soma-stat-val" style="font-size:1.1rem; color:#10b981;">${loggedDays}/${dayWindow}d</div></div>
+          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Active Burn</div><div class="soma-stat-val" style="font-size:1.1rem; color:var(--soma-warn);">${totalBurn.toLocaleString()} kcal</div></div>
+          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Avg Weight</div><div class="soma-stat-val" style="font-size:1.1rem; color:var(--soma-info);">${avgWeight} kg</div></div>
+          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Workouts Logged</div><div class="soma-stat-val" style="font-size:1.1rem; color:var(--soma-accent-text);">${loggedDays}/${dayWindow}d</div></div>
         </div>
         <div class="soma-stats-grid" style="grid-template-columns:repeat(3, 1fr); margin-bottom:0;">
-          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Food Logged</div><div class="soma-stat-val" style="font-size:1.1rem; color:#ef4444;">${foodLoggedDays}/${dayWindow}d</div></div>
+          <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Food Logged</div><div class="soma-stat-val" style="font-size:1.1rem; color:var(--soma-danger);">${foodLoggedDays}/${dayWindow}d</div></div>
           <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Habit Completion</div><div class="soma-stat-val" style="font-size:1.1rem; color:#a855f7;">${habitPossible > 0 ? habitCompletionPct + '%' : 'N/A'}</div></div>
           <div class="soma-stat-box" style="text-align:center;"><div class="soma-stat-lbl">Habit Check-ins</div><div class="soma-stat-val" style="font-size:1.1rem; color:#22c55e;">${habitChecksDone}</div></div>
         </div>
@@ -4975,12 +4897,13 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   async mountCreatineStandalone(containerEl, sourcePath) {
     containerEl.empty();
     const root = containerEl.createDiv({ cls: "cr-saturation-root" });
+    applySomaTheme(root, await this.readVaultJson(SETTINGS_FILE_PATH, {}));
 
     const fileName = sourcePath ? sourcePath.split("/").pop() : "";
     const dateMatch = fileName ? fileName.match(/\d{4}-\d{2}-\d{2}/) : null;
     const todayKey = dateMatch ? dateMatch[0] : getLocalDateKey(new Date());
 
-    let nutritionDB = await this.readVaultJson(NUTRITION_FILE_PATH, {});
+    let nutritionDB = await this.readNutrition({});
     this.ensureNutritionSettings(nutritionDB);
     if (!nutritionDB[todayKey]) nutritionDB[todayKey] = { creatine: 0 };
 
@@ -5023,18 +4946,18 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
       <div class="soma-card ${satPct >= 95 ? 'soma-card-emerald-glow' : ''}">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:1.05rem; font-weight:900; color:#fff;">⚡ Creatine Saturation</span>
-            ${currentStreak > 0 ? `<span class="soma-tag" style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid #f59e0b;">🔥 ${currentStreak}d Streak</span>` : ''}
+            <span style="font-size:1.05rem; font-weight:900; color:var(--soma-text);">⚡ Creatine Saturation</span>
+            ${currentStreak > 0 ? `<span class="soma-tag" style="background:rgba(245,158,11,0.15); color:var(--soma-warn); border:1px solid var(--soma-warn);">🔥 ${currentStreak}d Streak</span>` : ''}
           </div>
-          <span style="font-size:0.85rem; font-weight:800; color:${satPct >= 95 ? '#10b981' : '#f59e0b'};">${satPct}% • ${satPct >= 95 ? 'Saturated' : 'Building'}</span>
+          <span style="font-size:0.85rem; font-weight:800; color:${satPct >= 95 ? 'var(--soma-accent-text)' : 'var(--soma-warn)'};">${satPct}% • ${satPct >= 95 ? 'Saturated' : 'Building'}</span>
         </div>
-        <div class="soma-bar-wrap" style="margin-bottom:10px;"><div class="soma-bar-fill" style="width:${satPct}%; background:#10b981;"></div></div>
-        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#9ca3af; margin-bottom:12px;">
-          <span>Tub Stash: <b style="color:#fff;">${stashGrams}g</b> (${daysLeft}d left)</span>
-          <span style="color:#f59e0b;">Depletion: <b>${finishFormatted}</b></span>
+        <div class="soma-bar-wrap" style="margin-bottom:10px;"><div class="soma-bar-fill" style="width:${satPct}%; background:var(--soma-accent);"></div></div>
+        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--soma-text-dim); margin-bottom:12px;">
+          <span>Tub Stash: <b style="color:var(--soma-text);">${stashGrams}g</b> (${daysLeft}d left)</span>
+          <span style="color:var(--soma-warn);">Depletion: <b>${finishFormatted}</b></span>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:0.8rem; color:#fff;">Today: <b>${todayDose}g</b></span>
+          <span style="font-size:0.8rem; color:var(--soma-text);">Today: <b>${todayDose}g</b></span>
           <div style="display:flex; gap:6px;">
             <button class="soma-btn" id="btn-c-3">+3g</button>
             <button class="soma-btn soma-btn-save" id="btn-c-5">+5g</button>
@@ -5071,6 +4994,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   async mountWeeklyPlanner(containerEl) {
     containerEl.empty();
     const root = containerEl.createDiv({ cls: "soma-weekly-planner-root" });
+    applySomaTheme(root, await this.readVaultJson(SETTINGS_FILE_PATH, {}));
 
     let settings = await this.readVaultJson(SETTINGS_FILE_PATH, { scheduleOverrides: {} });
     if (!settings.scheduleOverrides) settings.scheduleOverrides = {};
@@ -5096,12 +5020,12 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 
       root.innerHTML = `
         <div class="soma-card">
-          <div style="font-size:1.05rem; font-weight:900; color:#fff; margin-bottom:10px;">📅 Editable Calendar Cascade</div>
+          <div style="font-size:1.05rem; font-weight:900; color:var(--soma-text); margin-bottom:10px;">📅 Editable Calendar Cascade</div>
           ${days.map(({ key, d, proj }) => `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-top:1px solid rgba(255,255,255,0.06);">
               <div>
-                <div style="font-weight:800; color:#fff; font-size:0.85rem;">${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}${key === getLocalDateKey(today) ? ' <span style="color:#10b981;">• Today</span>' : ''}</div>
-                <div style="font-size:0.7rem; color:#9ca3af;">${proj.phaseBadge}${settings.scheduleOverrides[key] ? ' • Custom' : ''}</div>
+                <div style="font-weight:800; color:var(--soma-text); font-size:0.85rem;">${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}${key === getLocalDateKey(today) ? ' <span style="color:var(--soma-accent-text);">• Today</span>' : ''}</div>
+                <div style="font-size:0.7rem; color:var(--soma-text-dim);">${proj.phaseBadge}${settings.scheduleOverrides[key] ? ' • Custom' : ''}</div>
               </div>
               <select class="soma-input" style="width:auto; height:34px; text-align:left; padding:0 8px;" data-action="set-day-split" data-key="${key}">
                 <option value="">— Auto (${proj.isRest ? 'Rest' : proj.split}) —</option>
@@ -5133,8 +5057,9 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   async mountWeeklyDashboard(containerEl, sourcePath) {
     containerEl.empty();
     const root = containerEl.createDiv({ cls: "soma-weekly-dash-root" });
+    applySomaTheme(root, await this.readVaultJson(SETTINGS_FILE_PATH, {}));
 
-    let nutritionDB = await this.readVaultJson(NUTRITION_FILE_PATH, {});
+    let nutritionDB = await this.readNutrition({});
     this.ensureNutritionSettings(nutritionDB);
 
     const fileName = sourcePath ? sourcePath.split("/").pop() : "";
@@ -5166,14 +5091,14 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
     root.innerHTML = `
       <div class="soma-card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div style="font-size:1.05rem; font-weight:900; color:#fff;">🍽️ Weekly Macro Dashboard</div>
+          <div style="font-size:1.05rem; font-weight:900; color:var(--soma-text);">🍽️ Weekly Macro Dashboard</div>
           <span class="soma-tag soma-tag-emerald">${loggedRows.length}/7 Logged</span>
         </div>
-        <div style="display:grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap:6px; font-size:0.72rem; color:#9ca3af; font-weight:800; padding:4px 6px;">
+        <div style="display:grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap:6px; font-size:0.72rem; color:var(--soma-text-dim); font-weight:800; padding:4px 6px;">
           <div>Day</div><div>Kcal</div><div>P</div><div>C</div><div>F</div>
         </div>
         ${rows.map(r => `
-          <div style="display:grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap:6px; padding:6px; border-top:1px solid rgba(255,255,255,0.06); font-size:0.78rem; ${r.logged ? 'color:#fff;' : 'color:#4b5563;'}">
+          <div style="display:grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap:6px; padding:6px; border-top:1px solid rgba(255,255,255,0.06); font-size:0.78rem; ${r.logged ? 'color:var(--soma-text);' : 'color:#4b5563;'}">
             <div>${r.d.toLocaleDateString("en-US", { weekday: "short" })}</div>
             <div>${r.logged ? r.cals : '—'}</div>
             <div>${r.logged ? r.p + 'g' : '—'}</div>
@@ -5181,9 +5106,9 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
             <div>${r.logged ? r.f + 'g' : '—'}</div>
           </div>
         `).join("")}
-        <div style="display:flex; justify-content:space-between; background:#16181f; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px; margin-top:10px; font-size:0.78rem;">
-          <span style="color:#9ca3af; font-weight:700;">Weekly Average</span>
-          <span style="color:#fff; font-weight:800;">${avg('cals')} kcal • P ${avg('p')}g • C ${avg('c')}g • F ${avg('f')}g</span>
+        <div style="display:flex; justify-content:space-between; background:var(--soma-surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px; margin-top:10px; font-size:0.78rem;">
+          <span style="color:var(--soma-text-dim); font-weight:700;">Weekly Average</span>
+          <span style="color:var(--soma-text); font-weight:800;">${avg('cals')} kcal • P ${avg('p')}g • C ${avg('c')}g • F ${avg('f')}g</span>
         </div>
       </div>
     `;
@@ -5195,8 +5120,9 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   async mountProgressWidget(containerEl, source) {
     containerEl.empty();
     const root = containerEl.createDiv({ cls: "soma-progress-root" });
+    applySomaTheme(root, await this.readVaultJson(SETTINGS_FILE_PATH, {}));
 
-    const history = await this.readVaultJson(HISTORY_FILE_PATH, {});
+    const history = await this.readHistory();
     const requestedExercise = (source || "").trim();
 
     const sessions = Object.entries(history)
@@ -5254,14 +5180,14 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       }).join(" ");
       return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-        <polyline points="${coords}" fill="none" stroke="#10b981" stroke-width="2" />
+        <polyline points="${coords}" fill="none" stroke="var(--soma-accent-text)" stroke-width="2" />
       </svg>`;
     };
 
     root.innerHTML = `
       <div class="soma-card">
-        <div style="font-size:1.05rem; font-weight:900; color:#fff; margin-bottom:10px;">📈 Progress: Est. 1RM Trends${requestedExercise ? ` — ${requestedExercise}` : ''}</div>
-        ${trendKeys.length === 0 ? `<div style="color:#9ca3af; font-size:0.8rem; text-align:center; padding:12px;">No completed sets logged yet${requestedExercise ? ` for "${requestedExercise}"` : ''}.</div>` : trendKeys.map(name => {
+        <div style="font-size:1.05rem; font-weight:900; color:var(--soma-text); margin-bottom:10px;">📈 Progress: Est. 1RM Trends${requestedExercise ? ` — ${requestedExercise}` : ''}</div>
+        ${trendKeys.length === 0 ? `<div style="color:var(--soma-text-dim); font-size:0.8rem; text-align:center; padding:12px;">No completed sets logged yet${requestedExercise ? ` for "${requestedExercise}"` : ''}.</div>` : trendKeys.map(name => {
           const points = exerciseTrends[name];
           const last = points[points.length - 1];
           const first = points[0];
@@ -5269,26 +5195,26 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
           return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(255,255,255,0.06);">
               <div>
-                <div style="font-weight:800; color:#fff; font-size:0.85rem;">${name}</div>
-                <div style="font-size:0.7rem; color:#9ca3af;">${points.length} data pts • ${delta >= 0 ? '+' : ''}${delta} since first log</div>
+                <div style="font-weight:800; color:var(--soma-text); font-size:0.85rem;">${name}</div>
+                <div style="font-size:0.7rem; color:var(--soma-text-dim);">${points.length} data pts • ${delta >= 0 ? '+' : ''}${delta} since first log</div>
               </div>
               <div>${renderSparkline(points)}</div>
-              <div style="text-align:right; font-weight:900; color:#10b981; font-size:0.95rem;">${last.est1RM}</div>
+              <div style="text-align:right; font-weight:900; color:var(--soma-accent-text); font-size:0.95rem;">${last.est1RM}</div>
             </div>
           `;
         }).join("")}
       </div>
       <div class="soma-card" style="margin-top:12px;">
-        <div style="font-size:1.05rem; font-weight:900; color:#fff; margin-bottom:10px;">🧬 Weekly Volume (Sets) Per Muscle Group</div>
-        ${recentWeeks.length === 0 ? `<div style="color:#9ca3af; font-size:0.8rem; text-align:center; padding:12px;">No workout history yet.</div>` : `
+        <div style="font-size:1.05rem; font-weight:900; color:var(--soma-text); margin-bottom:10px;">🧬 Weekly Volume (Sets) Per Muscle Group</div>
+        ${recentWeeks.length === 0 ? `<div style="color:var(--soma-text-dim); font-size:0.8rem; text-align:center; padding:12px;">No workout history yet.</div>` : `
           <div style="display:flex; flex-direction:column; gap:8px;">
             ${recentWeeks.map(wk => {
               const muscles = weeklyVolume[wk];
               const total = Object.values(muscles).reduce((a, b) => a + b, 0);
               return `
                 <div>
-                  <div style="font-size:0.72rem; color:#9ca3af; margin-bottom:3px;">Week of ${wk} • ${total} total sets</div>
-                  <div class="soma-bar-wrap"><div class="soma-bar-fill" style="width:${Math.min(100, total * 2)}%; background:#38bdf8;"></div></div>
+                  <div style="font-size:0.72rem; color:var(--soma-text-dim); margin-bottom:3px;">Week of ${wk} • ${total} total sets</div>
+                  <div class="soma-bar-wrap"><div class="soma-bar-fill" style="width:${Math.min(100, total * 2)}%; background:var(--soma-info);"></div></div>
                 </div>
               `;
             }).join("")}
@@ -5302,7 +5228,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   // DATA EXPORT: CSV (workout history + macros) & JSON backup/restore
   // ==========================================================================
   async exportWorkoutHistoryCsv() {
-    const history = await this.readVaultJson(HISTORY_FILE_PATH, {});
+    const history = await this.readHistory();
     const rows = [["Date", "Split", "Duration", "Calories Burned", "Total Volume", "Total Sets", "Exercise", "Set#", "Weight", "Reps", "Failure", "Done"]];
     for (const [dateKey, session] of Object.entries(history)) {
       for (const ex of session.exercises || []) {
@@ -5323,7 +5249,7 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
   }
 
   async exportMacrosCsv() {
-    const nutritionDB = await this.readVaultJson(NUTRITION_FILE_PATH, {});
+    const nutritionDB = await this.readNutrition({});
     const rows = [["Date", "Body Weight", "Water(ml)", "Item", "Cals", "Protein", "Carbs", "Fat"]];
     for (const [dateKey, day] of Object.entries(nutritionDB)) {
       if (dateKey === "_settings" || dateKey === "__defaultGoals") continue;
@@ -5373,74 +5299,5 @@ module.exports = class SomaSmartCoachPlugin extends Plugin {
 // ============================================================================
 // NATIVE OBSIDIAN SETTINGS TAB
 // ============================================================================
-class SomaSettingTab extends PluginSettingTab {
-  constructor(app, plugin) {
-    super(app, plugin);
-    this.plugin = plugin;
-  }
 
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl("h2", { text: "SOMA Smart Coach & Recovery HUD Pro" });
-
-    new Setting(containerEl)
-      .setName("Default unit")
-      .setDesc("Used by new workout logs (existing logs keep their own unit).")
-      .addDropdown(drop => {
-        drop.addOption("kg", "Kilograms (kg)");
-        drop.addOption("lb", "Pounds (lb)");
-        this.plugin.readVaultJson(SETTINGS_FILE_PATH, { unit: "kg" }).then(s => drop.setValue(s.unit || "kg"));
-        drop.onChange(async (val) => {
-          const s = await this.plugin.readVaultJson(SETTINGS_FILE_PATH, {});
-          s.unit = val;
-          await this.plugin.writeVaultJson(SETTINGS_FILE_PATH, s);
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Auto protein target")
-      .setDesc("Automatically set daily protein goal from your latest logged body weight.")
-      .addToggle(toggle => {
-        this.plugin.readVaultJson(NUTRITION_FILE_PATH, {}).then(n => toggle.setValue(!!n._settings?.autoProteinTarget));
-        toggle.onChange(async (val) => {
-          const n = await this.plugin.readVaultJson(NUTRITION_FILE_PATH, {});
-          this.plugin.ensureNutritionSettings(n);
-          n._settings.autoProteinTarget = val;
-          await this.plugin.writeVaultJson(NUTRITION_FILE_PATH, n);
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Protein target (g per kg bodyweight)")
-      .setDesc("Only used when auto protein target is enabled.")
-      .addText(text => {
-        this.plugin.readVaultJson(NUTRITION_FILE_PATH, {}).then(n => text.setValue(String(n._settings?.proteinPerKg ?? 2.0)));
-        text.onChange(async (val) => {
-          const num = parseFloat(val);
-          if (isNaN(num)) return;
-          const n = await this.plugin.readVaultJson(NUTRITION_FILE_PATH, {});
-          this.plugin.ensureNutritionSettings(n);
-          n._settings.proteinPerKg = num;
-          await this.plugin.writeVaultJson(NUTRITION_FILE_PATH, n);
-        });
-      });
-
-    containerEl.createEl("h3", { text: "Data" });
-
-    new Setting(containerEl)
-      .setName("Export workout history to CSV")
-      .setDesc("Writes apps/scripts/soma-workout-export.csv")
-      .addButton(btn => btn.setButtonText("Export").onClick(() => this.plugin.exportWorkoutHistoryCsv()));
-
-    new Setting(containerEl)
-      .setName("Export macro diary to CSV")
-      .setDesc("Writes apps/scripts/soma-macros-export.csv")
-      .addButton(btn => btn.setButtonText("Export").onClick(() => this.plugin.exportMacrosCsv()));
-
-    new Setting(containerEl)
-      .setName("Backup all data to JSON")
-      .setDesc("Saves a single JSON snapshot of every SOMA data file, dated to today.")
-      .addButton(btn => btn.setButtonText("Backup Now").onClick(() => this.plugin.backupAllData()));
-  }
-}
+module.exports = { SomaSmartCoachPlugin };

@@ -1,9 +1,0 @@
-{
-  "id": "soma-smart-coach",
-  "name": "SOMA Smart Coach & Recovery HUD Pro",
-  "version": "3.7.0",
-  "minAppVersion": "0.15.0",
-  "description": "Unified Apple Graphite fitness suite: Vector Anatomical Recovery HUD, Subscription Expiry Engine, Editable Calendar Cascade, Muscle-Filtered PR Directory, Creatine Saturation Tracker, Daily Macro Diary, Live Workout Logger with Supersets & Drop Sets, Progress Charts, Habit Tracker with Photo Calendar, CSV Export & JSON Backup, and Deload Automation.",
-  "author": "SOMA Engineering",
-  "isDesktopOnly": false
-}

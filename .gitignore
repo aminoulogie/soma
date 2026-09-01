@@ -3,3 +3,7 @@ node_modules/
 Thumbs.db
 desktop.ini
 *.crdownload
+
+# Build outputs and local installs
+dist/
+apps/pwa/dev-dist/

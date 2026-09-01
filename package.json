@@ -1,0 +1,16 @@
+{
+  "name": "soma",
+  "private": true,
+  "description": "SOMA fitness system — shared core, Obsidian plugin, and PWA.",
+  "workspaces": [
+    "packages/*",
+    "apps/obsidian",
+    "apps/pwa"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace=apps/obsidian",
+    "build:obsidian": "npm run build --workspace=apps/obsidian",
+    "build:pwa": "npm run build --workspace=apps/pwa",
+    "deploy": "bash scripts/deploy.sh"
+  }
+}
