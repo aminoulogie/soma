@@ -1228,6 +1228,268 @@ var require_engine = __commonJS({
   }
 });
 
+// ../../packages/core/src/workout-model.js
+var require_workout_model = __commonJS({
+  "../../packages/core/src/workout-model.js"(exports2, module2) {
+    var { getLocalDateKey: getLocalDateKey2 } = require_dates();
+    var { SomaIntelligenceEngine: SomaIntelligenceEngine2 } = require_engine();
+    var SET_WARMUP = "warmup";
+    var SET_WORKING = "working";
+    var idCounter = 0;
+    function nextId(prefix) {
+      idCounter += 1;
+      return `${prefix}_${Date.now().toString(36)}_${idCounter}`;
+    }
+    function makeSet(overrides = {}) {
+      return {
+        id: nextId("set"),
+        type: SET_WORKING,
+        weight: null,
+        reps: null,
+        rpe: null,
+        done: false,
+        // Drops belong to the set they dropped from. A drop cannot exist without
+        // a parent, which is exactly the constraint the flat model could not express.
+        drops: [],
+        ...overrides
+      };
+    }
+    function makeDrop(overrides = {}) {
+      return { weight: null, reps: null, done: false, ...overrides };
+    }
+    function makeExerciseBlock(exercise, sets) {
+      return {
+        kind: "exercise",
+        id: nextId("blk"),
+        exercise,
+        sets: sets && sets.length ? sets : [makeSet()]
+      };
+    }
+    function makeSupersetBlock(label, members, rounds = 3) {
+      return {
+        kind: "superset",
+        id: nextId("blk"),
+        label,
+        rounds,
+        members: members.map((m) => ({
+          exercise: m.exercise,
+          sets: m.sets && m.sets.length ? m.sets : Array.from({ length: rounds }, () => makeSet())
+        }))
+      };
+    }
+    function makeSession(date, split) {
+      return {
+        date: date || getLocalDateKey2(/* @__PURE__ */ new Date()),
+        split: split || "",
+        startedAt: Date.now(),
+        finishedAt: null,
+        blocks: []
+      };
+    }
+    function eachExercise(session) {
+      const out = [];
+      for (const block of session && session.blocks || []) {
+        if (block.kind === "superset") {
+          for (const m of block.members) {
+            out.push({ exercise: m.exercise, sets: m.sets, block, member: m });
+          }
+        } else {
+          out.push({ exercise: block.exercise, sets: block.sets, block, member: null });
+        }
+      }
+      return out;
+    }
+    function workingSets(session) {
+      const out = [];
+      for (const { exercise, sets } of eachExercise(session)) {
+        for (const s of sets) {
+          if (s.done && s.type === SET_WORKING) out.push({ exercise, set: s });
+        }
+      }
+      return out;
+    }
+    function setTotalReps(set) {
+      const base = parseInt(set.reps) || 0;
+      return (set.drops || []).reduce((a, d) => a + (parseInt(d.reps) || 0), base);
+    }
+    function setTonnage(set, barWeight = 0) {
+      const w = (parseFloat(set.weight) || 0) + barWeight;
+      let total = w * (parseInt(set.reps) || 0);
+      for (const d of set.drops || []) {
+        total += ((parseFloat(d.weight) || 0) + barWeight) * (parseInt(d.reps) || 0);
+      }
+      return Math.round(total);
+    }
+    function nextAfter(session, blockId, exerciseIndex, setIndex) {
+      const block = (session && session.blocks || []).find((b) => b.id === blockId);
+      if (!block) return { kind: "rest" };
+      if (block.kind === "superset") {
+        const at = exerciseIndex ?? 0;
+        if (at < block.members.length - 1) {
+          const next = block.members[at + 1];
+          return { kind: "superset-partner", exercise: next.exercise, roundIndex: setIndex };
+        }
+        return { kind: "rest", reason: `End of superset ${block.label}` };
+      }
+      const set = block.sets[setIndex];
+      if (set && (set.drops || []).length) {
+        const pending = set.drops.findIndex((d) => !d.done);
+        if (pending !== -1) {
+          return { kind: "drop", dropIndex: pending, weight: set.drops[pending].weight };
+        }
+      }
+      return { kind: "rest" };
+    }
+    function toLegacySession(session, opts = {}) {
+      const { caloriesBurned = 0, durationFormatted = "", bodyWeight = 75 } = opts;
+      const exercises = [];
+      let totalVol = 0;
+      let axialVol = 0;
+      let totalSets = 0;
+      let sumRpe = 0;
+      const muscles = {};
+      for (const { exercise, sets, block } of eachExercise(session)) {
+        const barWeight = exercise.usesBar ? exercise.barWeight || 20 : 0;
+        const flatSets = [];
+        for (const s of sets) {
+          flatSets.push({
+            weight: s.weight === null ? "" : s.weight,
+            reps: s.reps === null ? "" : s.reps,
+            failure: s.rpe === null ? 3 : s.rpe,
+            done: !!s.done,
+            type: s.type === SET_WARMUP ? "warmup" : "normal"
+          });
+          for (const d of s.drops || []) {
+            flatSets.push({
+              weight: d.weight === null ? "" : d.weight,
+              reps: d.reps === null ? "" : d.reps,
+              failure: 4,
+              done: !!d.done,
+              type: "dropset"
+            });
+          }
+          if (s.done && s.type === SET_WORKING) {
+            totalSets += 1;
+            sumRpe += parseInt(s.rpe) || 3;
+            let vol = SomaIntelligenceEngine2.calculateWorkVolume(
+              (parseFloat(s.weight) || 0) + barWeight,
+              s.reps,
+              exercise.isBW,
+              bodyWeight
+            );
+            for (const d of s.drops || []) {
+              vol += SomaIntelligenceEngine2.calculateWorkVolume(
+                (parseFloat(d.weight) || 0) + barWeight,
+                d.reps,
+                exercise.isBW,
+                bodyWeight
+              );
+            }
+            totalVol += vol;
+            if (exercise.isAxial) axialVol += vol;
+          }
+        }
+        const doneWorking = sets.filter((s) => s.done && s.type === SET_WORKING);
+        if (doneWorking.length) {
+          const avgFail = doneWorking.reduce((a, s) => a + (parseInt(s.rpe) || 3), 0) / doneWorking.length;
+          for (const k of exercise.targetKeys || []) {
+            if (!muscles[k]) muscles[k] = { sets: 0, sumFail: 0 };
+            muscles[k].sets += doneWorking.length;
+            muscles[k].sumFail += avgFail * doneWorking.length;
+          }
+        }
+        exercises.push({
+          ...exercise,
+          supersetGroup: block.kind === "superset" ? block.label : "",
+          sets: flatSets
+        });
+      }
+      const finalMuscles = {};
+      for (const k of Object.keys(muscles)) {
+        finalMuscles[k] = {
+          sets: muscles[k].sets,
+          avgFail: Math.round(muscles[k].sumFail / muscles[k].sets * 10) / 10
+        };
+      }
+      return {
+        timestamp: session.finishedAt || session.startedAt || Date.now(),
+        dateStr: new Date(session.finishedAt || session.startedAt || Date.now()).toISOString(),
+        split: session.split,
+        durationFormatted,
+        caloriesBurned,
+        totalVol,
+        axialVol,
+        totalSets,
+        avgIntensity: totalSets ? Math.round(sumRpe / totalSets * 10) / 10 : 3,
+        muscles: finalMuscles,
+        exercises
+      };
+    }
+    function fromLegacySession(legacy, date) {
+      const session = makeSession(
+        date || (legacy.timestamp ? getLocalDateKey2(new Date(legacy.timestamp)) : void 0),
+        legacy.split || ""
+      );
+      session.startedAt = legacy.timestamp || Date.now();
+      session.finishedAt = legacy.timestamp || null;
+      const groups = /* @__PURE__ */ new Map();
+      for (const ex of legacy.exercises || []) {
+        const sets = [];
+        for (const s of ex.sets || []) {
+          if (s.type === "dropset") {
+            const parent = sets[sets.length - 1];
+            const drop = makeDrop({
+              weight: s.weight === "" ? null : parseFloat(s.weight),
+              reps: s.reps === "" ? null : parseInt(s.reps),
+              done: !!s.done
+            });
+            if (parent) parent.drops.push(drop);
+            else sets.push(makeSet({ ...drop, type: SET_WORKING, drops: [] }));
+            continue;
+          }
+          sets.push(makeSet({
+            type: s.type === "warmup" ? SET_WARMUP : SET_WORKING,
+            weight: s.weight === "" || s.weight === void 0 ? null : parseFloat(s.weight),
+            reps: s.reps === "" || s.reps === void 0 ? null : parseInt(s.reps),
+            rpe: s.failure === "" || s.failure === void 0 ? null : parseInt(s.failure),
+            done: !!s.done
+          }));
+        }
+        const { supersetGroup, sets: _drop, ...exercise } = ex;
+        if (supersetGroup) {
+          if (!groups.has(supersetGroup)) {
+            const block2 = makeSupersetBlock(supersetGroup, [], 0);
+            groups.set(supersetGroup, block2);
+            session.blocks.push(block2);
+          }
+          const block = groups.get(supersetGroup);
+          block.members.push({ exercise, sets });
+          block.rounds = Math.max(block.rounds, sets.length);
+        } else {
+          session.blocks.push(makeExerciseBlock(exercise, sets));
+        }
+      }
+      return session;
+    }
+    module2.exports = {
+      SET_WARMUP,
+      SET_WORKING,
+      makeSet,
+      makeDrop,
+      makeExerciseBlock,
+      makeSupersetBlock,
+      makeSession,
+      eachExercise,
+      workingSets,
+      setTotalReps,
+      setTonnage,
+      nextAfter,
+      toLegacySession,
+      fromLegacySession
+    };
+  }
+});
+
 // ../../packages/core/src/workout-state.js
 var require_workout_state = __commonJS({
   "../../packages/core/src/workout-state.js"(exports2, module2) {
@@ -1264,21 +1526,95 @@ var require_workout_state = __commonJS({
 // ../../packages/core/src/index.js
 var require_src = __commonJS({
   "../../packages/core/src/index.js"(exports2, module2) {
-    var dates = require_dates();
-    var migrations = require_migrations();
-    var profiles = require_profiles();
-    var data = require_data();
-    var habitDefaults = require_defaults();
-    var habitStats = require_stats();
+    var {
+      getLocalDateKey: getLocalDateKey2,
+      parseLocalDateKey: parseLocalDateKey2,
+      addDays: addDays2,
+      formatDateLong,
+      formatTimeShort
+    } = require_dates();
+    var {
+      SOMA_SCHEMA_VERSION: SOMA_SCHEMA_VERSION2,
+      isDateKey: isDateKey2,
+      sessionIsEmpty: sessionIsEmpty2,
+      normalizeSet: normalizeSet2,
+      normalizeExercise: normalizeExercise2,
+      migrateHistory: migrateHistory2,
+      nutritionEntryIsEmpty: nutritionEntryIsEmpty2,
+      migrateNutrition: migrateNutrition2
+    } = require_migrations();
+    var { ALL_DOCK_TABS: ALL_DOCK_TABS2, WIDGET_PROFILES: WIDGET_PROFILES2 } = require_profiles();
+    var {
+      DEFAULT_GOALS,
+      BASE_FOOD_LIBRARY,
+      BASE_EXERCISE_DB: BASE_EXERCISE_DB2,
+      ROUTINE_PRESETS: ROUTINE_PRESETS2,
+      ROTATION_SEQUENCE: ROTATION_SEQUENCE2
+    } = require_data();
+    var { DEFAULT_HABITS, DEFAULT_HABIT_SETTINGS } = require_defaults();
+    var { calculateHabitStats: calculateHabitStats2 } = require_stats();
+    var {
+      SET_WARMUP,
+      SET_WORKING,
+      makeSet,
+      makeDrop,
+      makeExerciseBlock,
+      makeSupersetBlock,
+      makeSession,
+      eachExercise,
+      workingSets,
+      setTotalReps,
+      setTonnage,
+      nextAfter,
+      toLegacySession,
+      fromLegacySession
+    } = require_workout_model();
     var { SomaIntelligenceEngine: SomaIntelligenceEngine2 } = require_engine();
     var { SomaWorkoutState } = require_workout_state();
     module2.exports = {
-      ...dates,
-      ...migrations,
-      ...profiles,
-      ...data,
-      ...habitDefaults,
-      ...habitStats,
+      // dates
+      getLocalDateKey: getLocalDateKey2,
+      parseLocalDateKey: parseLocalDateKey2,
+      addDays: addDays2,
+      formatDateLong,
+      formatTimeShort,
+      // migrations
+      SOMA_SCHEMA_VERSION: SOMA_SCHEMA_VERSION2,
+      isDateKey: isDateKey2,
+      sessionIsEmpty: sessionIsEmpty2,
+      normalizeSet: normalizeSet2,
+      normalizeExercise: normalizeExercise2,
+      migrateHistory: migrateHistory2,
+      nutritionEntryIsEmpty: nutritionEntryIsEmpty2,
+      migrateNutrition: migrateNutrition2,
+      // widget composition
+      ALL_DOCK_TABS: ALL_DOCK_TABS2,
+      WIDGET_PROFILES: WIDGET_PROFILES2,
+      // seed data
+      DEFAULT_GOALS,
+      BASE_FOOD_LIBRARY,
+      BASE_EXERCISE_DB: BASE_EXERCISE_DB2,
+      ROUTINE_PRESETS: ROUTINE_PRESETS2,
+      ROTATION_SEQUENCE: ROTATION_SEQUENCE2,
+      DEFAULT_HABITS,
+      DEFAULT_HABIT_SETTINGS,
+      // workout model
+      SET_WARMUP,
+      SET_WORKING,
+      makeSet,
+      makeDrop,
+      makeExerciseBlock,
+      makeSupersetBlock,
+      makeSession,
+      eachExercise,
+      workingSets,
+      setTotalReps,
+      setTonnage,
+      nextAfter,
+      toLegacySession,
+      fromLegacySession,
+      // logic
+      calculateHabitStats: calculateHabitStats2,
       SomaIntelligenceEngine: SomaIntelligenceEngine2,
       SomaWorkoutState
     };
@@ -1504,10 +1840,32 @@ var require_photo = __commonJS({
 // ../../packages/browser/src/index.js
 var require_src2 = __commonJS({
   "../../packages/browser/src/index.js"(exports2, module2) {
-    var theme = require_theme();
-    var audio = require_audio();
-    var photo = require_photo();
-    module2.exports = { ...theme, ...audio, ...photo };
+    var {
+      ACCENT_PRESETS: ACCENT_PRESETS2,
+      DEFAULT_ACCENT: DEFAULT_ACCENT2,
+      accentInk: accentInk2,
+      accentText: accentText2,
+      normalizeAccent: normalizeAccent2,
+      resolveTheme: resolveTheme2,
+      applySomaTheme: applySomaTheme2
+    } = require_theme();
+    var { SomaAudioCelebration } = require_audio();
+    var { readAndCompressImage, pickPhoto } = require_photo();
+    module2.exports = {
+      // theme
+      ACCENT_PRESETS: ACCENT_PRESETS2,
+      DEFAULT_ACCENT: DEFAULT_ACCENT2,
+      accentInk: accentInk2,
+      accentText: accentText2,
+      normalizeAccent: normalizeAccent2,
+      resolveTheme: resolveTheme2,
+      applySomaTheme: applySomaTheme2,
+      // feedback
+      SomaAudioCelebration,
+      // photo capture
+      readAndCompressImage,
+      pickPhoto
+    };
   }
 });
 

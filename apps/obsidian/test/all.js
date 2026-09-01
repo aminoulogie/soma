@@ -50,7 +50,8 @@ const suites = [
   "test-training.js",
   "test-nutrition.js",
   "test-consistency.js",
-  "test-routines.js"
+  "test-routines.js",
+  "test-workout-model.js"
 ];
 
 let failed = false;

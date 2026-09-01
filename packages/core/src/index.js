@@ -30,6 +30,12 @@ const {
 
 const { DEFAULT_HABITS, DEFAULT_HABIT_SETTINGS } = require("./habits/defaults.js");
 const { calculateHabitStats } = require("./habits/stats.js");
+const {
+  SET_WARMUP, SET_WORKING, makeSet, makeDrop, makeExerciseBlock, makeSupersetBlock,
+  makeSession, eachExercise, workingSets, setTotalReps, setTonnage, nextAfter,
+  toLegacySession, fromLegacySession
+} = require("./workout-model.js");
+
 const { SomaIntelligenceEngine } = require("./engine.js");
 const { SomaWorkoutState } = require("./workout-state.js");
 
@@ -63,6 +69,22 @@ module.exports = {
   ROTATION_SEQUENCE,
   DEFAULT_HABITS,
   DEFAULT_HABIT_SETTINGS,
+
+  // workout model
+  SET_WARMUP,
+  SET_WORKING,
+  makeSet,
+  makeDrop,
+  makeExerciseBlock,
+  makeSupersetBlock,
+  makeSession,
+  eachExercise,
+  workingSets,
+  setTotalReps,
+  setTonnage,
+  nextAfter,
+  toLegacySession,
+  fromLegacySession,
 
   // logic
   calculateHabitStats,
