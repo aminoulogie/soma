@@ -39,6 +39,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck --workspace=apps/pwa
 
+      - name: Build the plugin bundle
+        # Must come before the tests. They run against the BUILT main.js, and
+        # the runner refuses a bundle older than its source — git does not
+        # preserve mtimes, so after a fresh checkout the committed artifact
+        # looks stale by milliseconds and the suite will not start.
+        run: npm run build --workspace=apps/obsidian
+
       - name: Test shared core
         # The core is what both front ends compute from; if it regresses the
         # PWA is wrong even when it builds.
