@@ -79,6 +79,13 @@ export default defineConfig({
   build: {
     target: "es2022",
     outDir: "dist",
+    // The workspace packages are CommonJS source, not pre-bundled deps, so
+    // Rollup parses them as ESM and finds no named exports. Including them
+    // here runs them through the CJS interop instead.
+    commonjsOptions: {
+      include: [/packages[\/]/, /node_modules/],
+      transformMixedEsModules: true
+    },
     assetsInlineLimit: 4096,
     rollupOptions: {
       output: {
@@ -92,6 +99,11 @@ export default defineConfig({
         }
       }
     }
+  },
+  optimizeDeps: {
+    // Linked workspace packages are not optimised by default; without this
+    // the dev server hits the same missing-export problem as the build.
+    include: ["@soma/core", "@soma/browser"]
   },
   server: {
     port: 5173,

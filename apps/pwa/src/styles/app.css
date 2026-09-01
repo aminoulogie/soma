@@ -220,3 +220,163 @@ body {
   text-align: center;
   padding: 4px;
 }
+
+/* ---------------------------------------------------- photo calendar ----- */
+
+.habit-select {
+  width: 100%;
+  appearance: none;
+  background: var(--soma-surface-2);
+  color: var(--soma-text);
+  border: 1px solid var(--soma-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cal-title { text-align: center; line-height: 1.25; }
+.cal-title strong { font-size: 0.95rem; display: block; }
+
+.cal-nav {
+  appearance: none;
+  background: var(--soma-surface-2);
+  border: 1px solid var(--soma-border);
+  color: var(--soma-text);
+  border-radius: 12px;
+  /* 40px square: a comfortable thumb target either side of the month title. */
+  width: 40px;
+  height: 40px;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.cal-dow, .cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.cal-dow {
+  margin-bottom: 5px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--soma-text-faint);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.cal-cell {
+  position: relative;
+  /* Square cells regardless of screen width, so the grid never distorts. */
+  aspect-ratio: 1;
+  border: 1px solid var(--soma-border);
+  border-radius: 10px;
+  background: var(--soma-surface-2);
+  color: var(--soma-text-faint);
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.cal-cell.is-blank { border: none; background: none; cursor: default; }
+.cal-cell:disabled { opacity: 0.3; cursor: default; }
+.cal-cell.is-today { border-color: var(--soma-accent); }
+
+.cal-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cal-num {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  z-index: 1;
+}
+/* On a photo the number needs its own contrast — a light shot would swallow
+   plain white text. */
+.cal-cell.has-photo .cal-num {
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.cal-hint { margin: 10px 0 0; text-align: center; }
+
+/* --------------------------------------------------------- lightbox ----- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: calc(var(--safe-t) + 12px) 12px calc(var(--safe-b) + 16px);
+}
+.lightbox img {
+  max-width: 100%;
+  /* Leaves room for the bar and the actions without either overlapping. */
+  max-height: 68vh;
+  border-radius: 14px;
+  object-fit: contain;
+}
+.lightbox-bar {
+  position: absolute;
+  top: calc(var(--safe-t) + 10px);
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--soma-text-dim);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.lightbox-actions { display: flex; gap: 10px; }
+
+.lb-btn {
+  appearance: none;
+  background: var(--soma-surface-2);
+  border: 1px solid var(--soma-border-strong);
+  color: var(--soma-text);
+  border-radius: 999px;
+  padding: 10px 18px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.lb-btn.danger { color: var(--soma-danger); border-color: var(--soma-danger); }
+
+/* The bar's close control is an icon, not an action button — the shared
+   .lb-btn padding makes it a wide pill up there. */
+.lightbox-bar .lb-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+}

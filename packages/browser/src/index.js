@@ -3,11 +3,34 @@
 //
 // Theming, audio feedback and photo capture. These touch the DOM, Web Audio
 // and canvas, so they cannot live in @soma/core — but they know nothing about
-// Obsidian either, which is why the PWA can use them unchanged.
+// Obsidian either, which is why the PWA reuses them unchanged.
+//
+// Exports are named explicitly for the same reason as core: Rollup cannot see
+// through a spread when it analyses CommonJS for named exports.
 // ============================================================================
 
-const theme = require("./theme.js");
-const audio = require("./audio.js");
-const photo = require("./habits/photo.js");
+const {
+  ACCENT_PRESETS, DEFAULT_ACCENT, accentInk, accentText,
+  normalizeAccent, resolveTheme, applySomaTheme
+} = require("./theme.js");
 
-module.exports = { ...theme, ...audio, ...photo };
+const { SomaAudioCelebration } = require("./audio.js");
+const { readAndCompressImage, pickPhoto } = require("./habits/photo.js");
+
+module.exports = {
+  // theme
+  ACCENT_PRESETS,
+  DEFAULT_ACCENT,
+  accentInk,
+  accentText,
+  normalizeAccent,
+  resolveTheme,
+  applySomaTheme,
+
+  // feedback
+  SomaAudioCelebration,
+
+  // photo capture
+  readAndCompressImage,
+  pickPhoto
+};
