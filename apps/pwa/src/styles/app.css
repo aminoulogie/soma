@@ -587,3 +587,153 @@ body {
 /* `display: flex` on a class beats the UA's [hidden] { display: none }, so the
    bar stayed visible as an empty strip once the timer finished. */
 .rest-bar[hidden] { display: none; }
+
+/* ------------------------------------------------------- shared bits ----- */
+
+.card-title { font-weight: 800; font-size: 0.9rem; margin-bottom: 8px; }
+.field-lbl {
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em;
+  color: var(--soma-text-dim); margin: 12px 0 4px; text-transform: uppercase;
+}
+.accent-text { color: var(--soma-accent-text); }
+.bold { font-weight: 800; }
+.dim { color: var(--soma-text-dim); }
+
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.stat-grid.four { grid-template-columns: repeat(4, 1fr); }
+.stat {
+  background: var(--soma-surface-2); border: 1px solid var(--soma-border);
+  border-radius: 14px; padding: 10px 8px; display: flex; flex-direction: column; gap: 3px;
+}
+.stat-lbl {
+  font-size: 0.56rem; font-weight: 800; letter-spacing: 0.07em;
+  color: var(--soma-text-faint); text-transform: uppercase;
+}
+.stat-val { font-size: 1.15rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+
+.list-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid var(--soma-border); font-size: 0.8rem;
+}
+.list-row:last-child { border-bottom: none; }
+.list-right { display: flex; gap: 10px; align-items: center; }
+
+.chart-legend {
+  display: flex; justify-content: space-between;
+  font-size: 0.6rem; color: var(--soma-text-faint); margin-top: 2px;
+}
+
+.stepper { display: flex; gap: 8px; align-items: center; }
+.stepper .btn { flex: 0 0 46px; }
+.in.big { flex: 1; text-align: center; font-size: 1.35rem; font-weight: 900; padding: 11px; }
+
+.quality-row { display: flex; gap: 8px; }
+.q-dot {
+  flex: 1; padding: 11px 0; border-radius: 12px;
+  border: 1px solid var(--soma-border); background: var(--soma-surface-2);
+  color: var(--soma-text-faint); font-size: 1rem; font-weight: 900;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.q-dot.on {
+  background: var(--soma-accent-soft); border-color: var(--soma-accent-line);
+  color: var(--soma-accent-text);
+}
+
+/* ------------------------------------------------------------ review ----- */
+
+.rev-head, .rev-row {
+  display: grid;
+  grid-template-columns: 46px 1fr 1fr 1fr 1fr;
+  gap: 4px; align-items: center;
+}
+.rev-head {
+  font-size: 0.52rem; font-weight: 800; letter-spacing: 0.06em;
+  color: var(--soma-text-faint); text-transform: uppercase;
+  text-align: center; padding-bottom: 5px;
+}
+.rev-row { padding: 3px 0; border-bottom: 1px solid var(--soma-border); }
+.rev-row:last-of-type { border-bottom: none; }
+.rev-row.is-today { background: var(--soma-accent-soft); border-radius: 10px; }
+
+.rev-day { display: flex; flex-direction: column; line-height: 1.1; font-size: 0.76rem; }
+.rev-day .faint { font-size: 0.56rem; }
+
+.rev-cell {
+  text-align: center; font-size: 0.7rem; font-weight: 700;
+  color: var(--soma-text-faint);
+  background: var(--soma-surface-2); border-radius: 8px; padding: 6px 2px;
+}
+.rev-cell.on { color: var(--soma-accent-text); background: var(--soma-accent-soft); }
+.rev-cell.warn { color: var(--soma-warn); background: rgba(245,158,11,0.12); }
+
+/* ------------------------------------------------------- volume bars ----- */
+
+.vol-row { padding: 8px 0; border-bottom: 1px solid var(--soma-border); }
+.vol-row:last-child { border-bottom: none; }
+.vol-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.8rem; font-weight: 800; margin-bottom: 5px;
+}
+.vol-bar {
+  position: relative; height: 9px; border-radius: 999px;
+  background: var(--soma-surface-3); overflow: hidden; margin-bottom: 4px;
+}
+.vol-fill { height: 100%; border-radius: 999px; }
+/* Landmark ticks sit on top of the fill so you can read where you landed. */
+.vol-tick {
+  position: absolute; top: 0; width: 2px; height: 100%;
+  background: var(--soma-bg); opacity: 0.85;
+}
+.vol-tick.mrv { background: var(--soma-danger); opacity: 0.9; }
+
+/* --------------------------------------------------------------- food ---- */
+
+.totals { display: flex; gap: 22px; align-items: baseline; margin-bottom: 12px; }
+.totals > div { display: flex; flex-direction: column; gap: 2px; }
+.big-num { font-size: 2rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+
+.macro { margin-bottom: 8px; }
+.macro-top {
+  display: flex; justify-content: space-between;
+  font-size: 0.72rem; font-weight: 700; margin-bottom: 4px;
+}
+.macro-bar { height: 7px; border-radius: 999px; background: var(--soma-surface-3); overflow: hidden; }
+.macro-fill { height: 100%; border-radius: 999px; transition: width .4s cubic-bezier(.16,1,.3,1); }
+
+.meal {
+  background: var(--soma-surface); border: 1px solid var(--soma-border);
+  border-radius: 18px; padding: 12px; margin-bottom: 10px;
+}
+.meal-head {
+  display: flex; justify-content: space-between;
+  font-weight: 800; font-size: 0.82rem; margin-bottom: 6px;
+}
+.x {
+  appearance: none; background: none; border: 0; color: var(--soma-text-faint);
+  font-size: 0.85rem; cursor: pointer; padding: 4px 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ------------------------------------------------------------ scanner ---- */
+
+.scanner {
+  position: fixed; inset: 0; z-index: 300; background: #000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: calc(var(--safe-t) + 52px) 14px calc(var(--safe-b) + 16px);
+}
+.scan-bar {
+  position: absolute; top: calc(var(--safe-t) + 10px); left: 14px; right: 14px;
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--soma-text-dim); font-size: 0.8rem; font-weight: 700;
+}
+.scan-video {
+  width: 100%; max-height: 52vh; border-radius: 16px;
+  background: #111; object-fit: cover;
+}
+.scan-status {
+  color: var(--soma-info); font-size: 0.78rem; font-weight: 700;
+  text-align: center; min-height: 2.4em;
+}
+.scan-manual { display: flex; gap: 8px; width: 100%; }
+.scan-manual .in { flex: 1; }
+.scan-manual .btn { flex: 0 0 auto; padding: 12px 16px; }
