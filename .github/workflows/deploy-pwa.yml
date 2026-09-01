@@ -1,0 +1,74 @@
+name: Deploy PWA
+
+# Only rebuild when something the PWA actually depends on changes. The Obsidian
+# plugin and the vault docs share this repo but do not affect the deployed site.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/pwa/**"
+      - "packages/**"
+      - ".github/workflows/deploy-pwa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A queued deploy should wait rather than cancel: cancelling mid-publish can
+# leave Pages serving a half-updated site.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install workspace
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck --workspace=apps/pwa
+
+      - name: Test shared core
+        # The core is what both front ends compute from; if it regresses the
+        # PWA is wrong even when it builds.
+        run: npm run test --workspace=apps/obsidian
+
+      - name: Build
+        # Must match the repo name so asset URLs resolve on a project page.
+        env:
+          PWA_BASE: /${{ github.event.repository.name }}/
+        run: npm run build --workspace=apps/pwa
+
+      - name: Verify service worker
+        # Guards the offline path: placeholders substituted, every runtime
+        # asset precached, navigation fallback present. A green build with a
+        # broken worker would ship an app that dies in airplane mode.
+        working-directory: apps/pwa
+        run: node scripts/verify-sw.mjs
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/pwa/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

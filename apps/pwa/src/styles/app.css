@@ -1,0 +1,222 @@
+/* ============================================================================
+   Theme tokens.
+
+   Same names as the Obsidian plugin's stylesheet, so its component CSS can be
+   dropped in during the UI port without a find-and-replace. --soma-accent is
+   written inline from settings; everything else resolves through it.
+   ============================================================================ */
+
+:root {
+  --soma-accent: #d3fd50;
+  --soma-accent-ink: #0b1207;
+  --soma-accent-text: #d3fd50;
+  --soma-accent-soft: color-mix(in srgb, var(--soma-accent) 16%, transparent);
+  --soma-accent-line: color-mix(in srgb, var(--soma-accent) 38%, transparent);
+
+  --soma-bg: #0b0c10;
+  --soma-surface: #141720;
+  --soma-surface-2: #1b1f2b;
+  --soma-surface-3: #232838;
+  --soma-border: rgba(255, 255, 255, 0.09);
+  --soma-border-strong: rgba(255, 255, 255, 0.16);
+
+  --soma-text: #f5f7fa;
+  --soma-text-dim: #9aa4b4;
+  --soma-text-faint: #6b7385;
+
+  --soma-danger: #ef4444;
+  --soma-warn: #f59e0b;
+  --soma-info: #38bdf8;
+
+  /* Height of the bottom nav plus whatever the home indicator needs. Content
+     reserves this so the last row is never trapped behind the bar. */
+  --nav-h: 58px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+:root[data-soma-theme="light"] {
+  --soma-accent-ink: #0b1207;
+  --soma-accent-text: color-mix(in srgb, var(--soma-accent) 70%, #000);
+  --soma-bg: #f4f6f9;
+  --soma-surface: #ffffff;
+  --soma-surface-2: #eef1f6;
+  --soma-surface-3: #e3e8f0;
+  --soma-border: rgba(15, 23, 42, 0.10);
+  --soma-border-strong: rgba(15, 23, 42, 0.20);
+  --soma-text: #101828;
+  --soma-text-dim: #566072;
+  --soma-text-faint: #858e9e;
+  --soma-danger: #dc2626;
+  --soma-warn: #d97706;
+  --soma-info: #0284c7;
+}
+
+/* ---------------------------------------------------------------- shell --- */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--soma-bg);
+  color: var(--soma-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Stops the whole page rubber-banding on iOS, which in a standalone app
+     looks like the UI has come unstuck from the screen. */
+  overscroll-behavior-y: none;
+}
+
+body {
+  /* The status bar is translucent, so the app paints underneath it. */
+  padding-top: var(--safe-t);
+}
+
+#app { min-height: 100%; }
+
+.boot {
+  display: grid;
+  place-items: center;
+  height: 70vh;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: var(--soma-text-faint);
+}
+
+/* --------------------------------------------------------------- content -- */
+
+.view {
+  padding: 12px 14px calc(var(--nav-h) + var(--safe-b) + 16px) 14px;
+  max-width: 640px;
+  margin: 0 auto;
+  /* Momentum scrolling without the body itself scrolling. */
+  -webkit-overflow-scrolling: touch;
+}
+
+.view h1 {
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  margin: 6px 0 14px;
+}
+
+.card {
+  background: var(--soma-surface);
+  border: 1px solid var(--soma-border);
+  border-radius: 20px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.muted { color: var(--soma-text-dim); font-size: 0.82rem; line-height: 1.5; }
+.faint { color: var(--soma-text-faint); font-size: 0.74rem; }
+
+.err-card {
+  margin: 20px 14px;
+  padding: 16px;
+  border: 1px solid var(--soma-danger);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--soma-danger) 10%, transparent);
+}
+.err-card h2 { margin: 0 0 6px; font-size: 1rem; }
+.err-hint { color: var(--soma-text-dim); font-size: 0.78rem; }
+
+/* ------------------------------------------------------------ bottom nav -- */
+
+.nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  /* The bar sits above the home indicator rather than under it. */
+  padding-bottom: var(--safe-b);
+  background: color-mix(in srgb, var(--soma-bg) 88%, transparent);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border-top: 1px solid var(--soma-border);
+}
+
+.nav button {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--soma-text-faint);
+  font: inherit;
+  font-size: 0.6rem;
+  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  /* 58px of touch target: comfortably past the ~44px minimum, and reachable
+     with a thumb without looking. */
+  height: var(--nav-h);
+  cursor: pointer;
+  /* No tap-highlight rectangle, and no 300ms delay. */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.nav button .ico { font-size: 1.15rem; line-height: 1; }
+.nav button[aria-current="page"] { color: var(--soma-accent-text); }
+
+/* Hover does not exist on a phone; only style it where a pointer is real. */
+@media (hover: hover) {
+  .nav button:hover { color: var(--soma-text-dim); }
+}
+
+/* ---------------------------------------------------------------- toasts -- */
+
+.toast-host {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--nav-h) + var(--safe-b) + 14px);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--soma-surface-3);
+  color: var(--soma-text);
+  border: 1px solid var(--soma-border-strong);
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* --------------------------------------------------------------- offline -- */
+
+.offline-bar {
+  position: fixed;
+  top: var(--safe-t);
+  left: 0;
+  right: 0;
+  z-index: 150;
+  background: var(--soma-warn);
+  color: #1a1204;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+  padding: 4px;
+}

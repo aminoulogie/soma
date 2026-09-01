@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SOMA</title>
+
+<!-- viewport-fit=cover lets the app paint into the notch and home-indicator
+     areas; the CSS then insets content with env(safe-area-inset-*) so nothing
+     actually sits under them. Without cover, iOS letterboxes the app. -->
+<meta name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+
+<!-- Standalone display + a dark status bar that blends into the app chrome.
+     black-translucent makes the status bar overlay the page, which is why the
+     safe-area insets above are not optional. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="SOMA" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<!-- Matches the app background so there is no white flash on launch. -->
+<meta name="theme-color" content="#0b0c10" />
+<meta name="color-scheme" content="dark light" />
+
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+
+<link rel="stylesheet" href="/src/styles/app.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Replaced on first paint. Present so a cold start on a slow connection
+         shows something other than a blank white screen. -->
+    <div class="boot">SOMA</div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

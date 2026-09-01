@@ -1,6 +1,8 @@
-# SOMA — fitness system for the `amine database` vault
+# SOMA — fitness system
 
-Source of truth for the SOMA Smart Coach plugin, its dashboards, and its templates.
+Training, nutrition, sleep and habits. Two front ends over one shared model:
+an Obsidian plugin, and a PWA for the iPhone home screen.
+
 The Obsidian vault lives in iCloud; **this repo does not.** That is deliberate — iCloud
 has produced conflict copies in this vault before (`main(1).js`, `2026-08-23(1..9).md`),
 and a `.git` directory inside iCloud would make that far worse.
@@ -8,59 +10,88 @@ and a `.git` directory inside iCloud would make that far worse.
 ## Architecture
 
 ```
-data      apps/scripts/*.json        (in vault — live, changes daily)
-  ^
-logic     plugin/main.js             (this repo — 5.4k lines, hand-written, no build step)
-  ^
-views     daily notes                ```soma-coach, ```macro-tracker, ```habittracker
-          Health/Dashboard/*.md      dataviewjs, reads the same JSON directly
+              packages/core          data model, migrations, all calculations
+                    │                no DOM, no Obsidian, no platform API
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+  apps/obsidian            apps/pwa
+  plugin → vault           static site → GitHub Pages
+  reads/writes             reads/writes IndexedDB
+  apps/scripts/*.json
 ```
 
-`main.js` is plain CommonJS requiring `obsidian` at runtime. There is no compile step:
-edit it here, run `scripts/deploy.sh`, reload Obsidian.
+`packages/browser` sits alongside core for things that need browser APIs but not
+Obsidian — theming, audio, photo capture — so the PWA reuses them unchanged.
 
-## Code blocks the plugin registers
+The boundary is enforced, not just documented: `apps/obsidian/test/test-modules.js`
+fails the build if anything in `core` reaches for `document` or `obsidian`.
 
-| Block | Purpose |
-|---|---|
-| `soma-coach` | daily workout logger |
-| `macro-tracker` | daily macro diary |
-| `macro-weekly` | weekly macro rollup |
-| `weekly-gym` / `weekly-gym-tracker` | weekly planner + adherence |
-| `creatine-tracker` | creatine saturation |
-| `habittracker` | habit grid |
-| `soma-progress` | progress charts |
-| `weekly-audit` / `monthly-audit` | period reviews |
-
-Anything else in a fence renders as nothing. `habit-radar` is **not** a valid block —
-it was an older name and is the most common source of "my daily note is blank here".
-
-## Data files (`apps/scripts/`)
-
-`soma-history` · `soma-nutrition` · `soma-settings` · `soma-data` · `muscleRegistry`
-· `custom-foods` · `weekly-gym-data`
-
-`soma-habits.json` and `custom-exercises.json` are declared in `main.js` but created
-lazily on first write — `readVaultJson(path, fallback)` returns the fallback when the
-file is absent, so their absence is normal, not an error.
-
-## Workflow
+## Working on it
 
 ```bash
-scripts/deploy.sh         # repo -> vault (after editing main.js here)
-scripts/pull.sh           # vault -> repo (if you edited via Obsidian)
-scripts/snapshot-data.sh  # dated backup of the live JSON data
+npm install              # workspace root, installs everything
+
+npm run test             # 259 tests, against the built plugin bundle
+npm run typecheck        # PWA
+npm run build:obsidian   # src → main.js
+npm run build:pwa        # → apps/pwa/dist
+npm run verify:pwa       # build + assert the service worker is deployable
+npm run deploy           # build, test, then copy the plugin into the vault
 ```
 
 Close Obsidian on **both** desktop and iPhone before deploying. Reopening the phone app
 may need a force-quit to pick up a changed plugin folder.
 
+## The plugin
+
+`main.js` is a **generated bundle** — edit `apps/obsidian/src/`, never `main.js`.
+The test runner refuses to run if the bundle is older than its source.
+
+| Block | Tabs |
+|---|---|
+| `soma-workout` | Workout · Heatmap · Calendar · Insights · Settings |
+| `soma-macros` / `macro-tracker` | Macros · Weight · Measure · Creatine · Settings |
+| `soma-sleep` | Sleep · Settings |
+| `habittracker` | Habits · Settings |
+| `soma-coach` | all-in-one; shows only what no other widget owns |
+| `macro-weekly`, `weekly-gym`, `creatine-tracker`, `soma-progress`, `weekly-audit`, `monthly-audit` | standalone widgets |
+
+`habit-radar` is **not** a valid block — it was an older name and is the most common
+source of "my daily note is blank here".
+
+## The PWA
+
+Vanilla TypeScript + Vite, no framework. Five routes on a bottom nav:
+**Train · Food · Habits · Sleep · Review**.
+
+Storage is IndexedDB, keyed per day rather than per file — the plugin rewrote a 225 KB
+JSON blob to tick one habit. The File System Access API is not implemented in Safari on
+any platform, and OPFS on iOS needs a Worker plus `createSyncAccessHandle`; neither buys
+anything here.
+
+The service worker is hand-rolled (`apps/pwa/src/sw.ts`) and built as a **classic**
+script — module service workers are not supported in Safari, so a module worker would
+register on Chromium and fail on every iPhone.
+
+Deployed to GitHub Pages by `.github/workflows/deploy-pwa.yml` on push to `main`.
+
+## Data
+
+Live JSON in the vault at `apps/scripts/`:
+
+`soma-history` · `soma-nutrition` · `soma-settings` · `soma-data` · `muscleRegistry`
+· `custom-foods` · `weekly-gym-data` · `soma-habits`
+
+Every read runs through the migration layer in `packages/core`, so both front ends
+normalise to the same schema and cannot drift apart.
+
 ## Layout
 
-- `plugin/` — deployed to `.obsidian/plugins/soma-smart-coach/`
-- `dashboards/` — copies of `Health/Dashboard/*.md`
-- `templates/` — copies of `templates/`
-- `data-snapshots/<date>/` — point-in-time JSON backups
-- `archive/` — 80 superseded version files (`bm1.0`–`bm24`, `gymlog 1.0`–`2.5`,
-  `bodymap 1.0`–`1.8`, macro/sleep iterations) pulled out of the vault. Kept for
-  reference only; nothing loads them.
+- `packages/core/` — the shared model. Pure.
+- `packages/browser/` — theming, audio, photo. Browser APIs, no Obsidian.
+- `apps/obsidian/` — the plugin. Deployed to `.obsidian/plugins/soma-smart-coach/`.
+- `apps/pwa/` — the PWA.
+- `dashboards/`, `templates/` — copies of vault notes.
+- `data-snapshots/<date>/` — point-in-time JSON backups.
+- `archive/` — 80 superseded version files, reference only; nothing loads them.

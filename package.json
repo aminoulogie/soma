@@ -11,6 +11,8 @@
     "test": "npm run test --workspace=apps/obsidian",
     "build:obsidian": "npm run build --workspace=apps/obsidian",
     "build:pwa": "npm run build --workspace=apps/pwa",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh",
+    "typecheck": "npm run typecheck --workspace=apps/pwa",
+    "verify:pwa": "npm run build --workspace=apps/pwa && node apps/pwa/scripts/verify-sw.mjs"
   }
 }
