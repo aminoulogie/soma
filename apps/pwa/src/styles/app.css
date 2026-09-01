@@ -380,3 +380,210 @@ body {
   place-items: center;
   font-size: 0.95rem;
 }
+
+/* ------------------------------------------------------------- logger ---- */
+
+.in {
+  appearance: none;
+  background: var(--soma-surface-2);
+  color: var(--soma-text);
+  border: 1px solid var(--soma-border);
+  border-radius: 10px;
+  padding: 9px 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  min-width: 0;
+  /* 16px would stop iOS zooming on focus, but these are small numeric fields;
+     inputmode keeps the numeric keypad and the row narrow. */
+}
+.in:focus { outline: none; border-color: var(--soma-accent); }
+.split-pick { width: 100%; font-weight: 700; }
+
+.session-head { display: grid; gap: 10px; }
+.session-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: var(--soma-text-dim);
+}
+.session-stats strong { color: var(--soma-text); font-size: 0.95rem; }
+
+.ex-card {
+  background: var(--soma-surface);
+  border: 1px solid var(--soma-border);
+  border-radius: 18px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.ex-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ex-name { font-weight: 800; font-size: 0.88rem; flex: 1; }
+.ex-del {
+  appearance: none; background: none; border: 0;
+  color: var(--soma-text-faint); font-size: 0.9rem; cursor: pointer;
+  padding: 4px 6px; -webkit-tap-highlight-color: transparent;
+}
+
+/* Superset members share one visual container so the grouping is obvious
+   without reading the tag. */
+.superset {
+  border: 1px solid var(--soma-accent-line);
+  border-radius: 20px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--soma-accent-soft);
+}
+.ss-bar {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--soma-accent-text);
+  margin-bottom: 8px;
+}
+.ss-tag {
+  font-size: 0.62rem; font-weight: 800;
+  color: var(--soma-accent-ink); background: var(--soma-accent);
+  border-radius: 999px; padding: 2px 8px;
+}
+.ex-card.in-superset { margin-bottom: 8px; }
+
+.set-head, .set-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 1fr 62px 44px;
+  gap: 6px;
+  align-items: center;
+}
+.set-head {
+  font-size: 0.58rem; font-weight: 800; letter-spacing: 0.07em;
+  color: var(--soma-text-faint); text-transform: uppercase;
+  padding: 0 2px 4px;
+}
+.set-row { margin-bottom: 6px; }
+.set-row.is-done { background: var(--soma-accent-soft); border-radius: 12px; }
+.set-row.is-warm { opacity: 0.7; }
+.set-row.is-drop { opacity: 0.85; }
+
+.set-no {
+  appearance: none;
+  background: var(--soma-surface-3);
+  border: 1px solid var(--soma-border);
+  color: var(--soma-text-dim);
+  border-radius: 9px;
+  height: 38px;
+  font: inherit; font-weight: 800; font-size: 0.78rem;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.rpe-spacer { }
+
+.tick {
+  appearance: none;
+  background: var(--soma-surface-3);
+  border: 1px solid var(--soma-border);
+  color: var(--soma-text-faint);
+  border-radius: 10px;
+  /* 38px tall: hit reliably with a thumb mid-set without looking. */
+  height: 38px;
+  font-size: 0.9rem; font-weight: 900;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.tick.on {
+  background: var(--soma-accent);
+  border-color: var(--soma-accent);
+  color: var(--soma-accent-ink);
+}
+
+.add-set, .add-drop {
+  appearance: none; background: none; border: 0;
+  color: var(--soma-text-faint);
+  font: inherit; font-size: 0.72rem; font-weight: 700;
+  padding: 6px 2px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.add-drop { padding-left: 40px; font-size: 0.68rem; }
+.add-set { color: var(--soma-accent-text); }
+
+.row-actions { display: flex; gap: 8px; margin: 12px 0 10px; }
+.btn {
+  flex: 1;
+  appearance: none;
+  background: var(--soma-surface-2);
+  color: var(--soma-text);
+  border: 1px solid var(--soma-border);
+  border-radius: 14px;
+  padding: 12px;
+  font: inherit; font-weight: 700; font-size: 0.82rem;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.btn.accent {
+  background: var(--soma-accent);
+  border-color: var(--soma-accent);
+  color: var(--soma-accent-ink);
+  font-weight: 800;
+}
+.btn.wide { width: 100%; }
+
+/* --------------------------------------------------------- rest timer ---- */
+
+.rest-bar {
+  position: sticky;
+  top: var(--safe-t);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--soma-accent);
+  color: var(--soma-accent-ink);
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.rest-bar strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.rest-skip {
+  appearance: none; background: rgba(0,0,0,0.18); border: 0;
+  color: inherit; border-radius: 999px; padding: 5px 12px;
+  font: inherit; font-size: 0.7rem; font-weight: 800; cursor: pointer;
+}
+
+/* ----------------------------------------------------- exercise picker --- */
+
+.picker {
+  position: fixed; inset: 0; z-index: 250;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: flex-end;
+}
+.picker-box {
+  background: var(--soma-bg);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  border-top: 1px solid var(--soma-border);
+  width: 100%;
+  max-height: 82vh;
+  display: flex; flex-direction: column;
+  padding: 14px 14px calc(var(--safe-b) + 14px);
+  gap: 10px;
+}
+.picker-list { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; }
+.pick-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  width: 100%; text-align: left;
+  appearance: none; background: var(--soma-surface); color: var(--soma-text);
+  border: 1px solid var(--soma-border); border-radius: 12px;
+  padding: 12px; margin-bottom: 6px;
+  font: inherit; font-size: 0.82rem; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pick-item.on { border-color: var(--soma-accent); background: var(--soma-accent-soft); }
+.picker-actions { display: flex; gap: 8px; }
+
+/* `display: flex` on a class beats the UA's [hidden] { display: none }, so the
+   bar stayed visible as an empty strip once the timer finished. */
+.rest-bar[hidden] { display: none; }
