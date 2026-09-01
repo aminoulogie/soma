@@ -101,6 +101,13 @@ if (existsSync(htmlPath)) {
   }
 }
 
+// --- icons -------------------------------------------------------------------
+// A home-screen app with a missing icon is the one thing users see first.
+for (const icon of ['icons/icon-192.png','icons/icon-512.png','icons/icon-maskable-512.png','icons/apple-touch-icon.png']) {
+  if (existsSync(join(DIST, icon))) ok.push(icon);
+  else problems.push('missing ' + icon);
+}
+
 // --- report -----------------------------------------------------------------
 for (const o of ok) console.log("  ok    " + o);
 for (const p of problems) console.log("  FAIL  " + p);

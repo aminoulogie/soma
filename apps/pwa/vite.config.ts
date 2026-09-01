@@ -1,5 +1,5 @@
 import { defineConfig, type Plugin } from "vite";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 // GitHub Pages serves project sites from /<repo>/, so asset URLs need that
@@ -28,16 +28,26 @@ function serviceWorkerPlugin(): Plugin {
       buildId = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
     },
 
-    async writeBundle(_options, bundle) {
+    async writeBundle() {
       const swSource = join(process.cwd(), "src", "sw.ts");
       if (!existsSync(swSource)) return;
 
-      // Everything Vite emitted, as URLs the SW can request.
-      const precache = Object.keys(bundle)
-        .filter(name => /\.(js|css|woff2?|png|svg|wasm)$/.test(name))
-        .map(name => base + name);
-      // The manifest and icons are static, so they are not in the bundle map.
-      precache.push(base + "manifest.webmanifest");
+      // Walk dist/ rather than the bundle map. Static files copied from
+      // public/ — the manifest and every icon — never appear in that map, so
+      // building the list from it silently left them out of the offline cache.
+      const walk = (dir: string, prefix: string): string[] => {
+        const out = [];
+        for (const e of readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) out.push(...walk(join(dir, e.name), prefix + e.name + "/"));
+          else out.push(prefix + e.name);
+        }
+        return out;
+      };
+      const precache = walk(outDir, "")
+        .filter(f => /\.(js|css|woff2?|png|svg|wasm|webmanifest)$/.test(f))
+        // The worker must never cache itself; that is how a stale SW survives.
+        .filter((f: string) => f !== "sw.js")
+        .map((f: string) => base + f);
 
       // esbuild is already present via Vite; use it to strip the TypeScript.
       const esbuild = await import("esbuild");
