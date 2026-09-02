@@ -38,6 +38,9 @@ const {
 
 const { SomaIntelligenceEngine } = require("./engine.js");
 const { SomaWorkoutState } = require("./workout-state.js");
+const {
+  BASE_RECOVERY_HOURS, computeMuscleReadiness, readinessMap, readinessForExercise
+} = require("./recovery.js");
 
 module.exports = {
   // dates
@@ -85,6 +88,12 @@ module.exports = {
   nextAfter,
   toLegacySession,
   fromLegacySession,
+
+  // recovery
+  BASE_RECOVERY_HOURS,
+  computeMuscleReadiness,
+  readinessMap,
+  readinessForExercise,
 
   // logic
   calculateHabitStats,

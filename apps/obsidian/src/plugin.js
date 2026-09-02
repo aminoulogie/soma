@@ -25,6 +25,7 @@ const {
   WIDGET_PROFILES,
   addDays,
   calculateHabitStats,
+  computeMuscleReadiness,
   formatDateLong,
   formatTimeShort,
   getLocalDateKey,
@@ -35,6 +36,7 @@ const {
   normalizeSet,
   nutritionEntryIsEmpty,
   parseLocalDateKey,
+  readinessForExercise,
   sessionIsEmpty
 } = require("@soma/core");
 const {
@@ -1169,106 +1171,48 @@ class SomaSmartCoachPlugin extends Plugin {
       return HEAT_TIERS.high;
     }
 
+    // The recovery model itself now lives in @soma/core, so the PWA can
+    // autoregulate off the same numbers instead of reimplementing them. This
+    // is the adapter: it runs the shared model over the registry's keys and
+    // copies the results onto the registry entries the heatmap draws from.
     const computeBiologicalReadiness = () => {
-      const BASE_RECOVERY_HOURS = {
-        calves: 24, calves_back: 24, deltoids_back: 24, forearms: 24,
-        biceps: 36, deltoids: 36,
-        chest: 48, upper_back: 48, trapezius_back: 48, triceps: 48, triceps_back: 48, gluteal: 48, adductors: 48,
-        quadriceps: 72, hamstring: 72, lower_back: 72
-      };
-
-      // Effort → recovery-time multiplier. This is the piece that was
-      // missing before: a light/moderate set (not taken near failure)
-      // should demand meaningfully LESS recovery than a true all-out set,
-      // instead of only nudging the base hours by a few percent.
-      //   1 = Very Easy      → 0.35x recovery time needed
-      //   2 = Easy / RIR 2    → 0.60x
-      //   3 = Target          → 1.00x (this is what the base hours assume)
-      //   4 = Hard / Grind    → 1.30x
-      //   5 = True Failure    → 1.60x
-      const EFFORT_MULTIPLIER = { 1: 0.35, 2: 0.60, 3: 1.00, 4: 1.30, 5: 1.60 };
-
-      const now = Date.now();
-      const latestStimulus = {};
-
-      for (const [dateKey, session] of Object.entries(history)) {
-        const sessionTime = session.timestamp || now;
-        if (session.muscles) {
-          for (const [mKey, stats] of Object.entries(session.muscles)) {
-            if (!latestStimulus[mKey] || sessionTime > latestStimulus[mKey].timestamp) {
-              latestStimulus[mKey] = {
-                timestamp: sessionTime,
-                sets: stats.sets || 3,
-                avgFail: stats.avgFail || 3
-              };
-            }
-          }
-        }
+      const fallbackHours = {};
+      for (const key in muscleRegistry) {
+        if (muscleRegistry[key].defaultHours) fallbackHours[key] = muscleRegistry[key].defaultHours;
       }
 
+      const readiness = computeMuscleReadiness(history, {
+        keys: Object.keys(muscleRegistry),
+        fallbackHours
+      });
+
       for (const key in muscleRegistry) {
-        const baseT = BASE_RECOVERY_HOURS[key] || muscleRegistry[key].defaultHours || 48;
-        muscleRegistry[key].defaultHours = baseT;
-
-        if (latestStimulus[key]) {
-          const elapsedHours = (now - latestStimulus[key].timestamp) / 3600000;
-          const sets = latestStimulus[key].sets;
-          const avgFail = latestStimulus[key].avgFail;
-
-          // Volume factor: 3 working sets is the "normal dose" this base
-          // time assumes. Fewer sets need proportionally less recovery,
-          // more sets need proportionally more — clamped so a single set
-          // or a huge session doesn't send this to an extreme.
-          const volumeFactor = Math.min(1.8, Math.max(0.45, sets / 3));
-
-          // Effort factor: interpolate between the defined levels so a
-          // 2.3 average difficulty lands between "Easy" and "Target".
-          const lo = Math.floor(avgFail), hi = Math.ceil(avgFail);
-          const effortFactor = lo === hi
-            ? (EFFORT_MULTIPLIER[lo] || 1)
-            : (EFFORT_MULTIPLIER[lo] || 1) + ((EFFORT_MULTIPLIER[hi] || 1) - (EFFORT_MULTIPLIER[lo] || 1)) * (avgFail - lo);
-
-          // Overall required recovery time, bounded to 30%–200% of the
-          // muscle's base so nothing goes absurdly short or long.
-          const tTarget = Math.min(baseT * 2, Math.max(baseT * 0.3, baseT * volumeFactor * effortFactor));
-
-          // Concave (not convex) decay: most of the readiness comes back
-          // in the earlier hours, tapering off near full recovery — this
-          // matches real recovery better than the old formula, which kept
-          // muscles pinned near 0% readiness for a while right after a
-          // light session.
-          const readiness = Math.min(100, Math.pow(Math.max(0, elapsedHours) / tTarget, 0.8) * 100);
-          const hoursLeft = Math.max(0, Math.round(tTarget - elapsedHours));
-
-          muscleRegistry[key].recovery = Math.round(readiness);
-          muscleRegistry[key].hoursLeft = hoursLeft;
-          muscleRegistry[key].lastWorkedHours = Math.round(elapsedHours);
-          muscleRegistry[key].effortNote = avgFail <= 1.5 ? "Very Easy" : avgFail <= 2.5 ? "Easy" : avgFail <= 3.5 ? "Target" : avgFail <= 4.5 ? "Hard" : "True Failure";
-          muscleRegistry[key].adjustedHours = Math.round(tTarget);
-          muscleRegistry[key].baseHours = baseT;
-        } else {
-          muscleRegistry[key].recovery = 100;
-          muscleRegistry[key].hoursLeft = 0;
-          muscleRegistry[key].lastWorkedHours = null;
-          muscleRegistry[key].effortNote = null;
+        const r = readiness[key];
+        if (!r) continue;
+        muscleRegistry[key].defaultHours = r.baseHours;
+        muscleRegistry[key].recovery = r.recovery;
+        muscleRegistry[key].hoursLeft = r.hoursLeft;
+        muscleRegistry[key].lastWorkedHours = r.lastWorkedHours;
+        muscleRegistry[key].effortNote = r.effortNote;
+        // Only a stimulated muscle carries these two; an untouched one is
+        // left as it was, matching what the heatmap already expects.
+        if (r.lastWorkedHours !== null) {
+          muscleRegistry[key].adjustedHours = r.adjustedHours;
+          muscleRegistry[key].baseHours = r.baseHours;
         }
       }
     };
 
     // Readiness of the limiting muscle an exercise trains. The Recovery HUD
     // already models this per muscle; this is the bridge that lets the
-    // workout builder consult it instead of only drawing it.
-    const readinessForExercise = (ex) => {
+    // workout builder consult it instead of only drawing it. Refreshes the
+    // registry first, then defers to the shared model for the "worst of the
+    // targeted muscles" rule.
+    const limitingReadiness = (ex) => {
       const keys = Array.isArray(ex && ex.targetKeys) ? ex.targetKeys : [];
       if (!keys.length) return null;
-      computeBiologicalReadiness();
-      let worst = null;
-      for (const k of keys) {
-        const entry = muscleRegistry[k];
-        if (!entry || typeof entry.recovery !== "number") continue;
-        if (worst === null || entry.recovery < worst) worst = entry.recovery;
-      }
-      return worst;
+      // muscleReadinessMap refreshes the registry itself.
+      return readinessForExercise(ex, muscleReadinessMap());
     };
 
     // Assembles the full context the autoregulation layer needs for one
@@ -1306,7 +1250,7 @@ class SomaSmartCoachPlugin extends Plugin {
         isBW: !!exMeta.isBW,
         // How the lifter actually feels can only pull the muscle figure down.
         readiness: SomaIntelligenceEngine.blendReadiness(
-          readinessForExercise(exMeta), todaySubjective()
+          limitingReadiness(exMeta), todaySubjective()
         ),
         isDeload: !!proj.isDeload,
         unit: settings.unit,

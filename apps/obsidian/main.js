@@ -1523,6 +1523,117 @@ var require_workout_state = __commonJS({
   }
 });
 
+// ../../packages/core/src/recovery.js
+var require_recovery = __commonJS({
+  "../../packages/core/src/recovery.js"(exports2, module2) {
+    var BASE_RECOVERY_HOURS = {
+      calves: 24,
+      calves_back: 24,
+      deltoids_back: 24,
+      forearms: 24,
+      biceps: 36,
+      deltoids: 36,
+      chest: 48,
+      upper_back: 48,
+      trapezius_back: 48,
+      triceps: 48,
+      triceps_back: 48,
+      gluteal: 48,
+      adductors: 48,
+      quadriceps: 72,
+      hamstring: 72,
+      lower_back: 72
+    };
+    var EFFORT_MULTIPLIER = { 1: 0.35, 2: 0.6, 3: 1, 4: 1.3, 5: 1.6 };
+    var DEFAULT_HOURS = 48;
+    function effortLabel(avgFail) {
+      if (avgFail <= 1.5) return "Very Easy";
+      if (avgFail <= 2.5) return "Easy";
+      if (avgFail <= 3.5) return "Target";
+      if (avgFail <= 4.5) return "Hard";
+      return "True Failure";
+    }
+    function latestStimulusByMuscle(history, now) {
+      const latest = {};
+      for (const session of Object.values(history || {})) {
+        if (!session || typeof session !== "object" || !session.muscles) continue;
+        const ts = session.timestamp || now;
+        for (const [key, stats] of Object.entries(session.muscles)) {
+          if (!latest[key] || ts > latest[key].timestamp) {
+            latest[key] = {
+              timestamp: ts,
+              sets: stats && stats.sets || 3,
+              avgFail: stats && stats.avgFail || 3
+            };
+          }
+        }
+      }
+      return latest;
+    }
+    function computeMuscleReadiness(history, opts = {}) {
+      const { now = Date.now(), keys = null, fallbackHours = {} } = opts;
+      const latest = latestStimulusByMuscle(history, now);
+      const keyList = keys && keys.length ? keys : [.../* @__PURE__ */ new Set([...Object.keys(BASE_RECOVERY_HOURS), ...Object.keys(latest)])];
+      const out = {};
+      for (const key of keyList) {
+        const baseT = BASE_RECOVERY_HOURS[key] || fallbackHours[key] || DEFAULT_HOURS;
+        const stim = latest[key];
+        if (!stim) {
+          out[key] = {
+            recovery: 100,
+            hoursLeft: 0,
+            lastWorkedHours: null,
+            effortNote: null,
+            adjustedHours: baseT,
+            baseHours: baseT
+          };
+          continue;
+        }
+        const elapsedHours = Math.max(0, (now - stim.timestamp) / 36e5);
+        const volumeFactor = Math.min(1.8, Math.max(0.45, stim.sets / 3));
+        const lo = Math.floor(stim.avgFail);
+        const hi = Math.ceil(stim.avgFail);
+        const loM = EFFORT_MULTIPLIER[lo] || 1;
+        const hiM = EFFORT_MULTIPLIER[hi] || 1;
+        const effortFactor = lo === hi ? loM : loM + (hiM - loM) * (stim.avgFail - lo);
+        const tTarget = Math.min(baseT * 2, Math.max(baseT * 0.3, baseT * volumeFactor * effortFactor));
+        const recovery = Math.min(100, Math.pow(elapsedHours / tTarget, 0.8) * 100);
+        out[key] = {
+          recovery: Math.round(recovery),
+          hoursLeft: Math.max(0, Math.round(tTarget - elapsedHours)),
+          lastWorkedHours: Math.round(elapsedHours),
+          effortNote: effortLabel(stim.avgFail),
+          adjustedHours: Math.round(tTarget),
+          baseHours: baseT
+        };
+      }
+      return out;
+    }
+    function readinessMap(history, opts = {}) {
+      const full = computeMuscleReadiness(history, opts);
+      const out = {};
+      for (const [k, v] of Object.entries(full)) out[k] = v.recovery;
+      return out;
+    }
+    function readinessForExercise(exercise, readiness) {
+      const keys = Array.isArray(exercise && exercise.targetKeys) ? exercise.targetKeys : [];
+      let worst = null;
+      for (const k of keys) {
+        const v = readiness && readiness[k];
+        if (typeof v !== "number") continue;
+        if (worst === null || v < worst) worst = v;
+      }
+      return worst;
+    }
+    module2.exports = {
+      BASE_RECOVERY_HOURS,
+      computeMuscleReadiness,
+      readinessMap,
+      readinessForExercise
+    };
+  }
+});
+
 // ../../packages/core/src/index.js
 var require_src = __commonJS({
   "../../packages/core/src/index.js"(exports2, module2) {
@@ -1571,6 +1682,12 @@ var require_src = __commonJS({
     } = require_workout_model();
     var { SomaIntelligenceEngine: SomaIntelligenceEngine2 } = require_engine();
     var { SomaWorkoutState } = require_workout_state();
+    var {
+      BASE_RECOVERY_HOURS,
+      computeMuscleReadiness,
+      readinessMap,
+      readinessForExercise
+    } = require_recovery();
     module2.exports = {
       // dates
       getLocalDateKey: getLocalDateKey2,
@@ -1613,6 +1730,11 @@ var require_src = __commonJS({
       nextAfter,
       toLegacySession,
       fromLegacySession,
+      // recovery
+      BASE_RECOVERY_HOURS,
+      computeMuscleReadiness,
+      readinessMap,
+      readinessForExercise,
       // logic
       calculateHabitStats: calculateHabitStats2,
       SomaIntelligenceEngine: SomaIntelligenceEngine2,
@@ -2673,6 +2795,7 @@ var require_plugin = __commonJS({
       WIDGET_PROFILES: WIDGET_PROFILES2,
       addDays: addDays2,
       calculateHabitStats: calculateHabitStats2,
+      computeMuscleReadiness,
       formatDateLong,
       formatTimeShort,
       getLocalDateKey: getLocalDateKey2,
@@ -2683,6 +2806,7 @@ var require_plugin = __commonJS({
       normalizeSet: normalizeSet2,
       nutritionEntryIsEmpty: nutritionEntryIsEmpty2,
       parseLocalDateKey: parseLocalDateKey2,
+      readinessForExercise,
       sessionIsEmpty: sessionIsEmpty2
     } = require_src();
     var {
@@ -3647,79 +3771,32 @@ var require_plugin = __commonJS({
           return HEAT_TIERS.high;
         }
         const computeBiologicalReadiness = () => {
-          const BASE_RECOVERY_HOURS = {
-            calves: 24,
-            calves_back: 24,
-            deltoids_back: 24,
-            forearms: 24,
-            biceps: 36,
-            deltoids: 36,
-            chest: 48,
-            upper_back: 48,
-            trapezius_back: 48,
-            triceps: 48,
-            triceps_back: 48,
-            gluteal: 48,
-            adductors: 48,
-            quadriceps: 72,
-            hamstring: 72,
-            lower_back: 72
-          };
-          const EFFORT_MULTIPLIER = { 1: 0.35, 2: 0.6, 3: 1, 4: 1.3, 5: 1.6 };
-          const now = Date.now();
-          const latestStimulus = {};
-          for (const [dateKey, session] of Object.entries(history)) {
-            const sessionTime = session.timestamp || now;
-            if (session.muscles) {
-              for (const [mKey, stats] of Object.entries(session.muscles)) {
-                if (!latestStimulus[mKey] || sessionTime > latestStimulus[mKey].timestamp) {
-                  latestStimulus[mKey] = {
-                    timestamp: sessionTime,
-                    sets: stats.sets || 3,
-                    avgFail: stats.avgFail || 3
-                  };
-                }
-              }
-            }
-          }
+          const fallbackHours = {};
           for (const key in muscleRegistry) {
-            const baseT = BASE_RECOVERY_HOURS[key] || muscleRegistry[key].defaultHours || 48;
-            muscleRegistry[key].defaultHours = baseT;
-            if (latestStimulus[key]) {
-              const elapsedHours = (now - latestStimulus[key].timestamp) / 36e5;
-              const sets = latestStimulus[key].sets;
-              const avgFail = latestStimulus[key].avgFail;
-              const volumeFactor = Math.min(1.8, Math.max(0.45, sets / 3));
-              const lo = Math.floor(avgFail), hi = Math.ceil(avgFail);
-              const effortFactor = lo === hi ? EFFORT_MULTIPLIER[lo] || 1 : (EFFORT_MULTIPLIER[lo] || 1) + ((EFFORT_MULTIPLIER[hi] || 1) - (EFFORT_MULTIPLIER[lo] || 1)) * (avgFail - lo);
-              const tTarget = Math.min(baseT * 2, Math.max(baseT * 0.3, baseT * volumeFactor * effortFactor));
-              const readiness = Math.min(100, Math.pow(Math.max(0, elapsedHours) / tTarget, 0.8) * 100);
-              const hoursLeft = Math.max(0, Math.round(tTarget - elapsedHours));
-              muscleRegistry[key].recovery = Math.round(readiness);
-              muscleRegistry[key].hoursLeft = hoursLeft;
-              muscleRegistry[key].lastWorkedHours = Math.round(elapsedHours);
-              muscleRegistry[key].effortNote = avgFail <= 1.5 ? "Very Easy" : avgFail <= 2.5 ? "Easy" : avgFail <= 3.5 ? "Target" : avgFail <= 4.5 ? "Hard" : "True Failure";
-              muscleRegistry[key].adjustedHours = Math.round(tTarget);
-              muscleRegistry[key].baseHours = baseT;
-            } else {
-              muscleRegistry[key].recovery = 100;
-              muscleRegistry[key].hoursLeft = 0;
-              muscleRegistry[key].lastWorkedHours = null;
-              muscleRegistry[key].effortNote = null;
+            if (muscleRegistry[key].defaultHours) fallbackHours[key] = muscleRegistry[key].defaultHours;
+          }
+          const readiness = computeMuscleReadiness(history, {
+            keys: Object.keys(muscleRegistry),
+            fallbackHours
+          });
+          for (const key in muscleRegistry) {
+            const r = readiness[key];
+            if (!r) continue;
+            muscleRegistry[key].defaultHours = r.baseHours;
+            muscleRegistry[key].recovery = r.recovery;
+            muscleRegistry[key].hoursLeft = r.hoursLeft;
+            muscleRegistry[key].lastWorkedHours = r.lastWorkedHours;
+            muscleRegistry[key].effortNote = r.effortNote;
+            if (r.lastWorkedHours !== null) {
+              muscleRegistry[key].adjustedHours = r.adjustedHours;
+              muscleRegistry[key].baseHours = r.baseHours;
             }
           }
         };
-        const readinessForExercise = (ex) => {
+        const limitingReadiness = (ex) => {
           const keys = Array.isArray(ex && ex.targetKeys) ? ex.targetKeys : [];
           if (!keys.length) return null;
-          computeBiologicalReadiness();
-          let worst = null;
-          for (const k of keys) {
-            const entry = muscleRegistry[k];
-            if (!entry || typeof entry.recovery !== "number") continue;
-            if (worst === null || entry.recovery < worst) worst = entry.recovery;
-          }
-          return worst;
+          return readinessForExercise(ex, muscleReadinessMap());
         };
         const todaySubjective = () => {
           const day = nutritionDB[noteDateKey] || {};
@@ -3750,7 +3827,7 @@ var require_plugin = __commonJS({
             isBW: !!exMeta.isBW,
             // How the lifter actually feels can only pull the muscle figure down.
             readiness: SomaIntelligenceEngine2.blendReadiness(
-              readinessForExercise(exMeta),
+              limitingReadiness(exMeta),
               todaySubjective()
             ),
             isDeload: !!proj.isDeload,
