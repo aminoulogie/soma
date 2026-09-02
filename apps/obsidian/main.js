@@ -345,7 +345,23 @@ var require_data = __commonJS({
       "Upper A (Chest/Back/Shoulder Focus)",
       "Rest & Active Recovery"
     ];
-    module2.exports = { DEFAULT_GOALS, BASE_FOOD_LIBRARY, BASE_EXERCISE_DB: BASE_EXERCISE_DB2, ROUTINE_PRESETS: ROUTINE_PRESETS2, ROTATION_SEQUENCE: ROTATION_SEQUENCE2 };
+    var DEFAULT_BAR_WEIGHT = 20;
+    function exerciseUsesBar(name = "") {
+      const n = String(name).toLowerCase();
+      if (n.includes("dumbbell") || n.includes("cable") || n.includes("machine") || n.includes("pec deck")) {
+        return false;
+      }
+      return /barbell|ez[- ]?(curl )?bar|ez bar|trap bar|hex bar|deadlift|smith/.test(n);
+    }
+    module2.exports = {
+      DEFAULT_GOALS,
+      BASE_FOOD_LIBRARY,
+      BASE_EXERCISE_DB: BASE_EXERCISE_DB2,
+      ROUTINE_PRESETS: ROUTINE_PRESETS2,
+      ROTATION_SEQUENCE: ROTATION_SEQUENCE2,
+      DEFAULT_BAR_WEIGHT,
+      exerciseUsesBar
+    };
   }
 });
 
@@ -1660,7 +1676,9 @@ var require_src = __commonJS({
       BASE_FOOD_LIBRARY,
       BASE_EXERCISE_DB: BASE_EXERCISE_DB2,
       ROUTINE_PRESETS: ROUTINE_PRESETS2,
-      ROTATION_SEQUENCE: ROTATION_SEQUENCE2
+      ROTATION_SEQUENCE: ROTATION_SEQUENCE2,
+      DEFAULT_BAR_WEIGHT,
+      exerciseUsesBar
     } = require_data();
     var { DEFAULT_HABITS, DEFAULT_HABIT_SETTINGS } = require_defaults();
     var { calculateHabitStats: calculateHabitStats2 } = require_stats();
@@ -1713,6 +1731,8 @@ var require_src = __commonJS({
       BASE_EXERCISE_DB: BASE_EXERCISE_DB2,
       ROUTINE_PRESETS: ROUTINE_PRESETS2,
       ROTATION_SEQUENCE: ROTATION_SEQUENCE2,
+      DEFAULT_BAR_WEIGHT,
+      exerciseUsesBar,
       DEFAULT_HABITS,
       DEFAULT_HABIT_SETTINGS,
       // workout model
@@ -2796,6 +2816,7 @@ var require_plugin = __commonJS({
       addDays: addDays2,
       calculateHabitStats: calculateHabitStats2,
       computeMuscleReadiness,
+      exerciseUsesBar,
       formatDateLong,
       formatTimeShort,
       getLocalDateKey: getLocalDateKey2,
@@ -3140,11 +3161,6 @@ var require_plugin = __commonJS({
           return SUPERSET_GROUPS[(idx + 1) % SUPERSET_GROUPS.length].id;
         };
         const supersetGroupInfo = (id) => SUPERSET_GROUPS.find((g) => g.id === id) || SUPERSET_GROUPS[0];
-        const exerciseUsesBar = (name = "") => {
-          const n = name.toLowerCase();
-          if (n.includes("dumbbell") || n.includes("cable") || n.includes("machine") || n.includes("pec deck")) return false;
-          return /barbell|ez[- ]?(curl )?bar|ez bar|trap bar|hex bar|deadlift|smith/.test(n);
-        };
         const getTotalWeight = (ex, s) => {
           const raw = parseFloat(s.weight) || 0;
           if (ex && ex.usesBar) {

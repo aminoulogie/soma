@@ -11,10 +11,15 @@ import {
   getLocalDateKey, BASE_EXERCISE_DB, ROUTINE_PRESETS,
   makeSession, makeSet, makeDrop, makeExerciseBlock, makeSupersetBlock,
   eachExercise, nextAfter, toLegacySession, fromLegacySession,
-  SET_WARMUP, SET_WORKING
+  SET_WARMUP, SET_WORKING, SomaIntelligenceEngine,
+  exerciseUsesBar, DEFAULT_BAR_WEIGHT
 } from "@soma/core";
 import { getRecord, putRecord, getMeta, setMeta } from "../lib/db";
 import { toast } from "../lib/toast";
+import {
+  loadCoachContext, targetFor, alternativesFor, loadingFor, prFor,
+  type CoachContext, type Target
+} from "../lib/coach";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Session = any;
@@ -27,6 +32,22 @@ let session: Session | null = null;
 let restEndsAt: number | null = null;
 let restLabel = "";
 let restTimer: number | null = null;
+
+// Loaded once per visit to the tab. Recomputing readiness and trends on every
+// keystroke would re-scan the whole history to redraw a number that cannot
+// have changed.
+let ctx: CoachContext | null = null;
+
+/**
+ * Exercise metadata as a session should store it. The database has no
+ * `usesBar` field, so it is inferred here — without it the logger records
+ * every barbell lift a bar's weight light, and volume, estimated 1RM and
+ * personal records all inherit the error.
+ */
+function withBar(meta: any): any {
+  const usesBar = exerciseUsesBar(meta.name);
+  return { ...meta, usesBar, barWeight: usesBar ? DEFAULT_BAR_WEIGHT : 0 };
+}
 
 // --------------------------------------------------------------- loading ----
 
@@ -78,6 +99,24 @@ function paintRest(el: HTMLElement): void {
     <button class="rest-skip" data-act="skip-rest">Skip</button>`;
 }
 
+// ------------------------------------------------------- readiness check ----
+
+// Today's soreness and stress. Sleep comes from the Sleep tab, so the check-in
+// only asks for what nothing else already knows.
+
+/** Names where the readiness figure came from, so a number is never unexplained. */
+function readinessBlurb(): string {
+  if (!ctx) return "";
+  if (ctx.subjective === null) {
+    return "Log sleep, or rate soreness and stress, to autoregulate today's targets.";
+  }
+  const from = ctx.subjectiveFrom;
+  const list = from.length > 1
+    ? `${from.slice(0, -1).join(", ")} and ${from[from.length - 1]}`
+    : from[0];
+  return `From ${list}. Targets below are adjusted to it.`;
+}
+
 // ----------------------------------------------------------------- render ---
 
 function setRow(blockId: string, exIdx: number, setIdx: number, s: WorkSet): string {
@@ -122,6 +161,31 @@ function setRow(blockId: string, exIdx: number, setIdx: number, s: WorkSet): str
     </button>`;
 }
 
+/**
+ * What to lift, and why. The "why" is the point — a bare number gives you no
+ * way to tell a deload from a stall from a normal week, so the tier badge and
+ * the autoregulator's note ride along with it.
+ */
+function targetStrip(exercise: any): string {
+  if (!ctx) return "";
+  const t: Target = targetFor(ctx, exercise);
+  const unit = ctx.unit;
+  const load = exercise.isBW || !t.weight ? "BW" : `${t.weight}${unit}`;
+  const tone = t.adjusted ? "warn" : "";
+
+  return `
+    <button class="tgt ${tone}" data-act="loading" data-n="${exercise.name}"
+            aria-label="Target and loading for ${exercise.name}">
+      <span class="tgt-main">
+        <span class="tgt-lbl">Target</span>
+        <strong>${load} × ${t.reps}</strong>
+      </span>
+      <span class="tgt-tier">${t.diffTier}</span>
+      ${t.readiness !== null ? `<span class="tgt-rdy">${t.readiness}%</span>` : ""}
+    </button>
+    ${t.autoNote ? `<p class="tgt-note">${t.autoNote}</p>` : ""}`;
+}
+
 function exerciseCard(block: Block, exIdx: number, exercise: any, sets: WorkSet[]): string {
   const isSuper = block.kind === "superset";
   return `
@@ -131,6 +195,7 @@ function exerciseCard(block: Block, exIdx: number, exercise: any, sets: WorkSet[
         ${isSuper ? `<span class="ss-tag">${block.label}</span>` : ""}
         <button class="ex-del" data-act="del-block" data-b="${block.id}" aria-label="Remove">✕</button>
       </div>
+      ${targetStrip(exercise)}
       <div class="set-head"><span>SET</span><span>KG</span><span>REPS</span><span>RPE</span><span></span></div>
       ${sets.map((s, i) => setRow(block.id, exIdx, i, s)).join("")}
       <button class="add-set" data-act="add-set" data-b="${block.id}" data-e="${exIdx}">+ Add set</button>
@@ -155,9 +220,42 @@ function render(host: HTMLElement): void {
     .flatMap((e: any) => e.sets)
     .filter((s: WorkSet) => s.done && s.type === SET_WORKING).length;
 
+  const prog = ctx?.program;
+  const subj = ctx?.subjective ?? null;
+
   host.innerHTML = `
     <h1>Train</h1>
     <div id="rest-bar" class="rest-bar" hidden></div>
+
+    ${prog ? `
+      <div class="card prog-card ${prog.isDeload ? "is-deload" : ""}">
+        <div class="prog-top">
+          <strong>${prog.split}</strong>
+          <span class="prog-badge">${prog.phaseBadge ?? prog.phase ?? ""}</span>
+        </div>
+        <p class="faint">Week ${prog.weekNumber} · ${prog.repScheme ?? ""}${prog.isDeload ? " · deload — 60% load, stop well short" : ""}</p>
+      </div>` : ""}
+
+    <div class="card">
+      <div class="card-title">
+        Readiness ${subj !== null ? `<span class="rdy-val">${subj}%</span>` : ""}
+      </div>
+      <p class="faint">${readinessBlurb()}</p>
+      <div class="chk-row">
+        <span class="field-lbl">Soreness</span>
+        <div class="quality-row">
+          ${[1, 2, 3, 4, 5].map(n =>
+            `<button class="q-dot ${ctx?.checkin.soreness === n ? "on" : ""}" data-chk="soreness" data-v="${n}">${n}</button>`).join("")}
+        </div>
+      </div>
+      <div class="chk-row">
+        <span class="field-lbl">Stress</span>
+        <div class="quality-row">
+          ${[1, 2, 3, 4, 5].map(n =>
+            `<button class="q-dot ${ctx?.checkin.stress === n ? "on" : ""}" data-chk="stress" data-v="${n}">${n}</button>`).join("")}
+        </div>
+      </div>
+    </div>
 
     <div class="card session-head">
       <select class="in split-pick" id="split-pick">
@@ -232,12 +330,30 @@ function wire(host: HTMLElement, rerender: () => void): void {
       if (preset.length && session.blocks.length === 0) {
         for (const item of preset) {
           const meta = BASE_EXERCISE_DB.find((x: any) => x.name === item.name) || { name: item.name, targetKeys: [] };
-          session.blocks.push(makeExerciseBlock(meta, [makeSet(), makeSet(), makeSet()]));
+          session.blocks.push(makeExerciseBlock(withBar(meta), [makeSet(), makeSet(), makeSet()]));
         }
       }
       void save();
       rerender();
     }
+  });
+
+  // The readiness check-in reloads the context rather than patching it: every
+  // target on screen is derived from that figure, so they all have to move.
+  host.addEventListener("click", (e) => {
+    const dot = (e.target as HTMLElement).closest<HTMLElement>("[data-chk]");
+    if (!dot) return;
+    const field = dot.dataset.chk as "soreness" | "stress";
+    const value = Number(dot.dataset.v);
+    void (async () => {
+      const current = ctx?.checkin ?? { soreness: null, stress: null };
+      // Tapping the selected value again clears it — otherwise a mis-tap is
+      // permanent for the day.
+      const next = { ...current, [field]: current[field] === value ? null : value };
+      await putRecord("body", today(), next);
+      ctx = await loadCoachContext();
+      rerender();
+    })();
   });
 
   host.addEventListener("click", (e) => {
@@ -256,11 +372,18 @@ function wire(host: HTMLElement, rerender: () => void): void {
         return;
       }
 
+      if (act === "loading") {
+        const name = btn.dataset.n;
+        if (name) openLoading(name);
+        return;
+      }
+
       if (act === "set-done" && sets) {
         const set = sets[setIdx];
         set.done = !set.done;
         await save();
         if (set.done) {
+          announcePR(blockId, exIdx, set);
           const next = nextAfter(session, blockId, exIdx, setIdx);
           if (next.kind === "superset-partner") {
             startRest(0, "", rerender);
@@ -268,8 +391,13 @@ function wire(host: HTMLElement, rerender: () => void): void {
           } else if (next.kind === "drop") {
             startRest(15, "Drop set — go", rerender);
           } else {
-            const rest = await getMeta<number>("restDefault", 90);
-            startRest(rest, next.reason ?? "Rest", rerender);
+            // A warm-up does not earn a full working rest. The model knows the
+            // difference; asking it beats a single flat duration for everything.
+            const rest = SomaIntelligenceEngine.restForSet(
+              exerciseAt(blockId, exIdx), set, [],
+              { restDefault: ctx?.restDefault ?? 90 }
+            );
+            startRest(rest.seconds, next.reason ?? rest.reason, rerender);
           }
         }
         rerender();
@@ -322,9 +450,9 @@ function wire(host: HTMLElement, rerender: () => void): void {
         if (!picked.length) return;
         if (act === "add-superset") {
           const label = String.fromCharCode(65 + session.blocks.filter((b: Block) => b.kind === "superset").length);
-          session.blocks.push(makeSupersetBlock(label, picked.map(p => ({ exercise: p })), 3));
+          session.blocks.push(makeSupersetBlock(label, picked.map(p => ({ exercise: withBar(p) })), 3));
         } else {
-          session.blocks.push(makeExerciseBlock(picked[0], [makeSet(), makeSet(), makeSet()]));
+          session.blocks.push(makeExerciseBlock(withBar(picked[0]), [makeSet(), makeSet(), makeSet()]));
         }
         await save();
         rerender();
@@ -339,6 +467,101 @@ function wire(host: HTMLElement, rerender: () => void): void {
       }
     })();
   });
+}
+
+// ------------------------------------------------------------------- PRs ----
+
+/** Finds which exercise a block/index pair refers to. */
+function exerciseAt(blockId: string, exIdx: number): any | null {
+  const b = session?.blocks.find((x: Block) => x.id === blockId);
+  if (!b) return null;
+  return b.kind === "superset" ? b.members[exIdx]?.exercise ?? null : b.exercise;
+}
+
+/**
+ * Says so when a completed set beats what came before. The comparison runs
+ * against history with today excluded, so the second set of a session is
+ * measured against previous sessions rather than against the first set.
+ */
+function announcePR(blockId: string, exIdx: number, set: WorkSet): void {
+  if (!ctx || set.type !== SET_WORKING) return;
+  const exercise = exerciseAt(blockId, exIdx);
+  if (!exercise) return;
+
+  const bar = exercise.usesBar ? (exercise.barWeight || 20) : 0;
+  const weight = (Number(set.weight) || 0) + bar;
+  const pr = prFor(ctx, exercise.name, weight, set.reps);
+  if (!pr) return;
+
+  const kinds: string[] = [];
+  if (pr.isWeightPR) kinds.push("heaviest");
+  if (pr.isRepPR) kinds.push("most reps at that load");
+  if (pr.isEst1RMPR) kinds.push(`est. 1RM ${pr.est1RM}${ctx.unit}`);
+  toast(`🏆 ${exercise.name} — ${kinds.join(", ")}`);
+}
+
+// --------------------------------------------------------------- loading ----
+
+/**
+ * How to actually load the bar: plates per side, and the ramp up to the
+ * working weight. Alternatives appear only when the muscle is fatigued
+ * enough for the swap to be the point.
+ */
+function openLoading(name: string): void {
+  if (!ctx) return;
+  const meta = (BASE_EXERCISE_DB as any[]).find(x => x.name === name);
+  if (!meta) return;
+  const exercise = withBar(meta);
+
+  const t = targetFor(ctx, exercise);
+  const { bar, plates, ramp } = loadingFor(ctx, exercise, t.weight);
+  const alts = (t.readiness !== null && t.readiness < 70) ? alternativesFor(ctx, exercise) : [];
+
+  const plateRow = (list: any[]) => list.length
+    ? list.map(p => `<span class="plate" style="background:${p.color}">${p.weight}</span>`).join("")
+    : `<span class="faint">just the ${bar}${ctx!.unit} bar</span>`;
+
+  const overlay = document.createElement("div");
+  overlay.className = "picker";
+  overlay.innerHTML = `
+    <div class="picker-box">
+      <div class="lightbox-bar">
+        <span>${exercise.name}</span>
+        <button class="lb-btn" data-p="cancel" aria-label="Close">✕</button>
+      </div>
+      <div class="picker-list">
+        <div class="card-title">Target ${exercise.isBW || !t.weight ? "BW" : `${t.weight}${ctx.unit}`} × ${t.reps}</div>
+        <p class="muted">${t.note}</p>
+        ${t.autoNote ? `<p class="muted">${t.autoNote}</p>` : ""}
+
+        ${bar ? `
+          <div class="card-title">Plates per side</div>
+          <div class="plate-row">${plateRow(plates)}</div>
+
+          <div class="card-title">Warm-up ramp</div>
+          ${ramp.map((r: any) => `
+            <div class="list-row">
+              <span>${r.pct}% · <strong>${r.weight}${ctx!.unit}</strong></span>
+              <span class="plate-row">${plateRow(r.plates)}</span>
+            </div>`).join("")}
+        ` : `<p class="muted">Not a barbell lift — no plate maths to do.</p>`}
+
+        ${alts.length ? `
+          <div class="card-title">Fresher alternatives</div>
+          <p class="faint">This muscle is at ${t.readiness}%. These train it with more left in the tank.</p>
+          ${alts.map(a => `
+            <div class="list-row">
+              <span>${a.name}<br><span class="faint">${a.subTarget} · ${a.note}</span></span>
+              <span class="accent-text bold">${a.readiness}%</span>
+            </div>`).join("")}` : ""}
+      </div>
+    </div>`;
+
+  overlay.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-p]") || target === overlay) overlay.remove();
+  });
+  document.body.appendChild(overlay);
 }
 
 /** Exercise picker. Multi-select when building a superset. */
@@ -402,7 +625,7 @@ export const trainRoute: Route = {
   icon: "⚡",
   async render(host) {
     void setMeta("lastTab", "train");
-    session = await loadSession();
+    [session, ctx] = await Promise.all([loadSession(), loadCoachContext()]);
     render(host);
   }
 };

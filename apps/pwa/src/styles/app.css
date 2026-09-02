@@ -700,6 +700,58 @@ body {
   color: var(--soma-accent-text);
 }
 
+/* ----------------------------------------------------------- coaching ---- */
+
+.prog-card { display: grid; gap: 4px; }
+.prog-top { display: flex; align-items: baseline; justify-content: space-between; }
+.prog-top strong { font-size: 1rem; }
+.prog-badge {
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--soma-accent-text);
+  background: var(--soma-accent-soft); border-radius: 999px; padding: 3px 9px;
+}
+.prog-card.is-deload { border-color: var(--soma-warn); }
+.prog-card.is-deload .prog-badge { color: var(--soma-warn); background: rgba(245,158,11,0.12); }
+
+.rdy-val { color: var(--soma-accent-text); font-variant-numeric: tabular-nums; }
+.chk-row { display: grid; gap: 5px; margin-top: 10px; }
+
+/* The target strip. A button because it opens the loading sheet — the plate
+   maths and the ramp are one tap away rather than a second screen. */
+.tgt {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin: 2px 0 6px; padding: 8px 11px; border-radius: 12px;
+  border: 1px solid var(--soma-accent-line); background: var(--soma-accent-soft);
+  color: var(--soma-text); font: inherit; text-align: left;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.tgt.warn { border-color: var(--soma-warn); background: rgba(245,158,11,0.10); }
+.tgt-main { flex: 1; display: flex; align-items: baseline; gap: 7px; }
+.tgt-lbl {
+  font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--soma-text-faint);
+}
+.tgt-main strong { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.tgt-tier { font-size: 0.62rem; font-weight: 800; color: var(--soma-text-dim); }
+.tgt-rdy {
+  font-size: 0.66rem; font-weight: 900; font-variant-numeric: tabular-nums;
+  color: var(--soma-accent-text);
+}
+.tgt.warn .tgt-rdy { color: var(--soma-warn); }
+.tgt-note {
+  margin: -2px 0 8px; padding: 0 2px;
+  font-size: 0.7rem; line-height: 1.45; color: var(--soma-text-dim);
+}
+
+/* Plates, drawn at their real relative sizes so a stack is readable at a
+   glance the way it is on the bar. */
+.plate-row { display: flex; gap: 3px; align-items: center; flex-wrap: wrap; }
+.plate {
+  min-width: 26px; padding: 3px 5px; border-radius: 5px;
+  font-size: 0.6rem; font-weight: 900; text-align: center;
+  color: #0b0b0f; font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------------------------------------ review ----- */
 
 .rev-head, .rev-row {

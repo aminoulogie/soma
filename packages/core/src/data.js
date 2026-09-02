@@ -144,8 +144,34 @@ const ROTATION_SEQUENCE = [
   "Rest & Active Recovery"
 ];
 
+// Standard olympic bar, in kg. Overridable per exercise.
+const DEFAULT_BAR_WEIGHT = 20;
+
+/**
+ * Whether an exercise is loaded on a bar, inferred from its name.
+ *
+ * This decides whether the weight you type excludes the bar, so it feeds
+ * volume, estimated 1RM, personal records and the plate calculator. The
+ * exercise database carries no `usesBar` field, which is why this has to be
+ * inferred at all — and why it belongs here rather than inside one app: an
+ * app without it records every barbell lift 20kg light.
+ *
+ * Implement-specific names win over the bar patterns, so "Flat Dumbbell
+ * Press" is not caught by a bar rule and a cable movement never is.
+ */
+function exerciseUsesBar(name = "") {
+  const n = String(name).toLowerCase();
+  if (n.includes("dumbbell") || n.includes("cable") || n.includes("machine") || n.includes("pec deck")) {
+    return false;
+  }
+  return /barbell|ez[- ]?(curl )?bar|ez bar|trap bar|hex bar|deadlift|smith/.test(n);
+}
+
 // ============================================================
 // SECTION 2: PROGRESSIVE OVERLOAD & PERIODIZATION ENGINES
 // ============================================================
 
-module.exports = { DEFAULT_GOALS, BASE_FOOD_LIBRARY, BASE_EXERCISE_DB, ROUTINE_PRESETS, ROTATION_SEQUENCE };
+module.exports = {
+  DEFAULT_GOALS, BASE_FOOD_LIBRARY, BASE_EXERCISE_DB, ROUTINE_PRESETS, ROTATION_SEQUENCE,
+  DEFAULT_BAR_WEIGHT, exerciseUsesBar
+};

@@ -26,6 +26,7 @@ const {
   addDays,
   calculateHabitStats,
   computeMuscleReadiness,
+  exerciseUsesBar,
   formatDateLong,
   formatTimeShort,
   getLocalDateKey,
@@ -432,12 +433,6 @@ class SomaSmartCoachPlugin extends Plugin {
     // Heuristic: only exercises actually loaded onto a barbell/EZ-bar get
     // the bar-weight dropdown. Machines, cables, dumbbells and bodyweight
     // moves don't need it.
-    const exerciseUsesBar = (name = "") => {
-      const n = name.toLowerCase();
-      if (n.includes("dumbbell") || n.includes("cable") || n.includes("machine") || n.includes("pec deck")) return false;
-      return /barbell|ez[- ]?(curl )?bar|ez bar|trap bar|hex bar|deadlift|smith/.test(n);
-    };
-
     // Returns the real total weight lifted for a given set, accounting for
     // the selected bar. For non-bar exercises this is just the raw entered
     // weight (unchanged behavior).
