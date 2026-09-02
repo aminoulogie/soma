@@ -288,6 +288,12 @@ export const foodRoute: Route = {
             const v = parseFloat(host.querySelector<HTMLInputElement>("#bw")?.value ?? "");
             if (isNaN(v) || v <= 0) { toast("Enter a valid weight."); return; }
             day.bodyWeight = Math.round(v * 10) / 10;
+            // The coach reads a global "current weight" meta for volume and PRs
+            // on days you have not weighed in — see routes/settings.ts. A
+            // fresh weigh-in here is the most current reading there is, so it
+            // updates that too rather than leaving it to drift to the value
+            // last typed into Settings.
+            await setMeta("bodyWeight", day.bodyWeight);
             // Protein scales with bodyweight, so a new weigh-in moves the target.
             const perKg = await getMeta<number>("proteinPerKg", 0);
             if (perKg > 0) {

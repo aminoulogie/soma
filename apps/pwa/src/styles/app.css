@@ -131,7 +131,9 @@ body {
   bottom: 0;
   z-index: 100;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* One column per registered route (main.ts sets --nav-cols), not a fixed
+     count — a 6th tab must not get crushed into a 5-column grid. */
+  grid-template-columns: repeat(var(--nav-cols, 5), 1fr);
   /* The bar sits above the home indicator rather than under it. */
   padding-bottom: var(--safe-b);
   background: color-mix(in srgb, var(--soma-bg) 88%, transparent);

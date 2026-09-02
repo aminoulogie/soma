@@ -7,7 +7,7 @@
 // resolves every route without the service worker faking navigations.
 // ============================================================================
 
-export type RouteId = "train" | "food" | "habits" | "sleep" | "review";
+export type RouteId = "train" | "food" | "habits" | "sleep" | "review" | "settings";
 
 export interface Route {
   id: RouteId;

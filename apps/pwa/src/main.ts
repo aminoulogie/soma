@@ -11,8 +11,9 @@ import { foodRoute } from "./routes/food";
 import { habitsRoute } from "./routes/habits";
 import { sleepRoute } from "./routes/sleep";
 import { reviewRoute } from "./routes/review";
+import { settingsRoute } from "./routes/settings";
 
-const ROUTES: Route[] = [trainRoute, foodRoute, habitsRoute, sleepRoute, reviewRoute];
+const ROUTES: Route[] = [trainRoute, foodRoute, habitsRoute, sleepRoute, reviewRoute, settingsRoute];
 
 function mountShell(): { view: HTMLElement; nav: HTMLElement } {
   const app = document.getElementById("app");
@@ -38,6 +39,7 @@ function mountShell(): { view: HTMLElement; nav: HTMLElement } {
 }
 
 function buildNav(nav: HTMLElement, router: Router): void {
+  nav.style.setProperty("--nav-cols", String(ROUTES.length));
   for (const r of ROUTES) {
     const b = document.createElement("button");
     b.type = "button";
