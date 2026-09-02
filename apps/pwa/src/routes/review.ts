@@ -16,6 +16,9 @@ const MONTHS = ["January", "February", "March", "April", "May", "June",
 
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
+// Which exercise the strength chart shows. Chosen lazily once history is
+// loaded, so the first paint defaults to whatever you've actually logged.
+let strengthPick: string | null = null;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const dayKey = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
@@ -128,6 +131,77 @@ async function view(host: HTMLElement): Promise<void> {
     <div class="card">
       <div class="card-title">📊 Weekly volume</div>
       ${volumeRows(workouts)}
+    </div>
+
+    <div class="card">
+      <div class="card-title">📈 Strength</div>
+      ${strengthCard(workouts)}
+    </div>`;
+}
+
+/**
+ * Estimated-1RM trend for one exercise, with PRs marked. The plugin has this
+ * as its own chart; here it rides on Review since a trend is a review-time
+ * question, not something to check mid-set.
+ */
+function strengthCard(workouts: Record<string, any>): string {
+  const names: string[] = SomaIntelligenceEngine.loggedExerciseNames(workouts);
+  if (!names.length) return `<p class="muted">Log a few sessions and trends appear here.</p>`;
+  if (!strengthPick || !names.includes(strengthPick)) strengthPick = names[0] ?? null;
+  if (!strengthPick) return `<p class="muted">Log a few sessions and trends appear here.</p>`;
+
+  const points = SomaIntelligenceEngine.strengthSeries(workouts, strengthPick);
+  const options = names.map((n: string) =>
+    `<option value="${n}" ${n === strengthPick ? "selected" : ""}>${n}</option>`).join("");
+
+  if (points.length < 2) {
+    return `
+      <select class="in split-pick" id="strength-pick">${options}</select>
+      <p class="muted" style="margin-top:10px">
+        ${points.length ? "One session logged — one more shows a trend." : "No completed working sets for this exercise yet."}
+      </p>`;
+  }
+
+  // Guarded above by points.length < 2, so both ends exist.
+  const firstPt = points[0]!, lastPt = points[points.length - 1]!;
+  const unitLbl = lastPt.metric === "est1RM" ? "est. 1RM" : "best reps";
+  const prs = points.filter((p: any) => p.isPR);
+  const last = lastPt.est1RM;
+  const delta = last - firstPt.est1RM;
+  const metric = lastPt.metric;
+
+  return `
+    <select class="in split-pick" id="strength-pick">${options}</select>
+    <div class="stat-grid" style="margin:10px 0">
+      <div class="stat"><span class="stat-lbl">Current ${unitLbl}</span><span class="stat-val accent-text">${last}${metric === "est1RM" ? "kg" : ""}</span></div>
+      <div class="stat"><span class="stat-lbl">Since first log</span>
+        <span class="stat-val" style="color:${delta >= 0 ? "var(--soma-accent-text)" : "var(--soma-warn)"}">${delta >= 0 ? "+" : ""}${Math.round(delta * 10) / 10}</span></div>
+      <div class="stat"><span class="stat-lbl">PRs hit</span><span class="stat-val">${prs.length}</span></div>
+    </div>
+    ${strengthSparkline(points)}`;
+}
+
+function strengthSparkline(points: any[]): string {
+  const pts = points.slice(-30);
+  const W = 320, H = 110, PAD = 10;
+  const vals = pts.map(p => p.est1RM);
+  const hi = Math.max(...vals) * 1.05;
+  const lo = Math.min(...vals) * 0.95;
+  const x = (i: number) => PAD + (i * (W - PAD * 2)) / (pts.length - 1);
+  const y = (v: number) => PAD + (H - PAD * 2) * (1 - (v - lo) / (hi - lo || 1));
+  const line = pts.map((p, i) => `${i ? "L" : "M"} ${x(i).toFixed(1)} ${y(p.est1RM).toFixed(1)}`).join(" ");
+  const dots = pts.map((p, i) => `
+    <circle cx="${x(i).toFixed(1)}" cy="${y(p.est1RM).toFixed(1)}" r="${p.isPR ? 3.5 : 1.8}"
+            fill="${p.isPR ? "var(--soma-warn)" : "var(--soma-accent-text)"}"/>`).join("");
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:120px;display:block">
+      <path d="${line}" fill="none" stroke="var(--soma-accent-text)" stroke-width="2"
+            stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+    </svg>
+    <div class="chart-legend">
+      <span>${pts[0].date}</span><span>orange = PR</span><span>${pts[pts.length - 1].date}</span>
     </div>`;
 }
 
@@ -172,6 +246,12 @@ export const reviewRoute: Route = {
         const b = (e.target as HTMLElement).closest<HTMLElement>("[data-shift]");
         if (!b) return;
         shift(Number(b.dataset.shift));
+        void view(host);
+      });
+      host.addEventListener("change", (e) => {
+        const el = e.target as HTMLSelectElement;
+        if (el.id !== "strength-pick") return;
+        strengthPick = el.value;
         void view(host);
       });
     }
