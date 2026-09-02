@@ -317,7 +317,52 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
+/* A ticked day. A tint plus an inset ring rather than a solid fill, so the
+   tick still reads over a photo without hiding the photo. */
+.cal-cell.is-done {
+  background: var(--soma-accent-soft);
+  border-color: var(--soma-accent-line);
+  color: var(--soma-accent-text);
+}
+.cal-cell.is-done::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 2px var(--soma-accent);
+  z-index: 2;
+  pointer-events: none;
+}
+.cal-dot {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 0.5rem;
+  z-index: 1;
+  opacity: 0.9;
+}
+
 .cal-hint { margin: 10px 0 0; text-align: center; }
+
+/* ------------------------------------------------------- habit chips ----- */
+
+.hb-chips { display: grid; gap: 8px; }
+.hb-chip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px; border-radius: 14px;
+  border: 1px solid var(--soma-border); background: var(--soma-surface-2);
+  color: var(--soma-text-dim); font-size: 0.82rem; font-weight: 700;
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.hb-chip.on {
+  background: var(--soma-accent-soft); border-color: var(--soma-accent-line);
+  color: var(--soma-accent-text);
+}
+.hb-ico { font-size: 1.1rem; line-height: 1; }
+.hb-name { flex: 1; }
+.hb-streak { font-size: 0.72rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hb-desc { margin: 8px 0 10px; }
 
 /* --------------------------------------------------------- lightbox ----- */
 
@@ -369,6 +414,22 @@ body {
   touch-action: manipulation;
 }
 .lb-btn.danger { color: var(--soma-danger); border-color: var(--soma-danger); }
+.lb-btn.on {
+  background: var(--soma-accent-soft);
+  border-color: var(--soma-accent-line);
+  color: var(--soma-accent-text);
+}
+
+/* Stands in for the image on a day that has a tick but no photo, so the
+   sheet keeps the same shape either way. */
+.lb-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--soma-text-faint);
+  font-size: 0.8rem;
+}
 
 /* The bar's close control is an icon, not an action button — the shared
    .lb-btn padding makes it a wide pill up there. */
